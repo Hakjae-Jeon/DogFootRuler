@@ -47,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     remove_parser.add_argument("name")
     remove_parser.add_argument("--force", action="store_true")
 
+    root_parser = project_subparsers.add_parser("root")
+    root_subparsers = root_parser.add_subparsers(dest="root_command", required=True)
+    root_subparsers.add_parser("show")
+    root_set_parser = root_subparsers.add_parser("set")
+    root_set_parser.add_argument("path")
+    root_set_parser.add_argument("--migrate", action="store_true")
+
     use_parser = project_subparsers.add_parser("use")
     use_parser.add_argument("name")
 
@@ -88,6 +95,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         manager.set_active_project(args.name)
         validate_manager_startup(manager, require_active_project=True)
         print(f"active project set to {args.name}")
+        return 0
+
+    if args.domain == "project" and args.command == "root" and args.root_command == "show":
+        print(manager.project_base_root)
+        return 0
+
+    if args.domain == "project" and args.command == "root" and args.root_command == "set":
+        previous_root, migrated_projects = manager.set_project_base_root(Path(args.path), migrate=args.migrate)
+        print(f"project_base_root updated: {previous_root} -> {manager.project_base_root}")
+        if migrated_projects:
+            print("migrated: " + ", ".join(migrated_projects))
         return 0
 
     if args.domain == "project" and args.command == "list":

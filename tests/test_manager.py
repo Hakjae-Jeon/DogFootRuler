@@ -131,3 +131,16 @@ def test_remove_project_moves_to_trash_and_clears_active(tmp_path: Path) -> None
     assert destination.parent.name == ".trash"
     assert manager.system_config.active_project is None
     assert not (tmp_path / "projects" / "alpha").exists()
+
+
+def test_set_project_base_root_with_migrate_moves_projects(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    manager.create_project("alpha", template="python")
+    new_root = tmp_path / "new-projects"
+
+    previous_root, migrated_projects = manager.set_project_base_root(new_root, migrate=True)
+
+    assert previous_root == (tmp_path / "projects").resolve()
+    assert migrated_projects == ["alpha"]
+    assert manager.project_base_root == new_root.resolve()
+    assert (new_root / "alpha" / "config" / "project.yaml").exists()

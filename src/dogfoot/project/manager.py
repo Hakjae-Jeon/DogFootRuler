@@ -185,3 +185,28 @@ class ProjectManager:
             self.system_config.active_project = None
             self.system_config.save()
         return destination, removed_active
+
+    def set_project_base_root(self, new_base_root: Path, migrate: bool = False) -> tuple[Path, list[str]]:
+        resolved = new_base_root.resolve()
+        if resolved.exists() and not resolved.is_dir():
+            raise NotADirectoryError(f"project_base_root is not a directory: {resolved}")
+        resolved.mkdir(parents=True, exist_ok=True)
+
+        migrated_projects: list[str] = []
+        current_base_root = self.project_base_root
+        if migrate:
+            for name in self.list_projects():
+                source = self.resolve_project_root(name)
+                destination = (resolved / name).resolve()
+                if destination.exists():
+                    raise FileExistsError(f"Destination already exists for project {name}: {destination}")
+                shutil.move(str(source), str(destination))
+                migrated_projects.append(name)
+
+        self.system_config.project_base_root = resolved
+        if self.system_config.active_project:
+            active_root = (resolved / self.system_config.active_project).resolve()
+            if not active_root.exists():
+                self.system_config.active_project = None
+        self.system_config.save()
+        return current_base_root, migrated_projects

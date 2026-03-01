@@ -91,6 +91,23 @@ def test_cli_project_remove_moves_project_to_trash(tmp_path: Path, capsys) -> No
     assert (tmp_path / "projects" / ".trash").is_dir()
 
 
+def test_cli_project_root_show_and_set(tmp_path: Path, capsys) -> None:
+    system_config = write_system_config(tmp_path)
+
+    exit_code = main(["--system-config", str(system_config), "project", "root", "show"])
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert str((tmp_path / "projects").resolve()) in output
+
+    new_root = tmp_path / "alt-projects"
+    exit_code = main(["--system-config", str(system_config), "project", "root", "set", str(new_root)])
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "project_base_root updated" in output
+    manager = ProjectManager.load(system_config)
+    assert manager.project_base_root == new_root.resolve()
+
+
 def test_cli_fails_when_system_config_missing(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--system-config", str(tmp_path / "missing.yaml"), "project", "list"])

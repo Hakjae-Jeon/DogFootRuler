@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,6 +12,7 @@ from dogfoot.interfaces.telegram.project_handlers import (
     project_clone_command,
     project_create_command,
     project_list_command,
+    project_root_command,
     project_remove_command,
     status_command,
     project_use_command,
@@ -38,7 +40,9 @@ def _make_runtime() -> TelegramRuntime:
             create_project=lambda name, template="empty": SimpleNamespace(name=name, project_root=f"/tmp/{name}"),
             clone_project=lambda name, repo_url, branch=None: SimpleNamespace(name=name, project_root=f"/tmp/{name}"),
             remove_project=lambda name, force_delete=False: (f"/tmp/.trash/{name}", name == "alpha"),
+            set_project_base_root=lambda path, migrate=False: ("/tmp/projects", ["alpha"] if migrate else []),
             get_active_project=lambda: active_project,
+            project_base_root=Path("/tmp/projects"),
             system_config=SimpleNamespace(active_project="alpha"),
         ),
         task_store=SimpleNamespace(
@@ -114,6 +118,31 @@ def test_project_remove_handler_reports_removed_project() -> None:
     text = update.message.reply_text.await_args.args[0]
     assert "trash" in text
     assert "active_project는 해제되었습니다" in text
+
+
+@pytest.mark.integration
+def test_project_root_show_handler_reports_current_root() -> None:
+    runtime = _make_runtime()
+    update = _make_update()
+
+    asyncio.run(project_root_command(runtime, update, _make_context(["show"])))
+
+    update.message.reply_text.assert_awaited_once()
+    assert "/tmp/projects" in update.message.reply_text.await_args.args[0]
+
+
+@pytest.mark.integration
+def test_project_root_set_handler_reports_updated_root() -> None:
+    runtime = _make_runtime()
+    runtime.project_manager.project_base_root = Path("/tmp/new-projects")
+    update = _make_update()
+
+    asyncio.run(project_root_command(runtime, update, _make_context(["set", "/tmp/new-projects", "--migrate"])))
+
+    update.message.reply_text.assert_awaited_once()
+    text = update.message.reply_text.await_args.args[0]
+    assert "project_base_root 변경 완료" in text
+    assert "migrated: alpha" in text
 
 
 @pytest.mark.integration

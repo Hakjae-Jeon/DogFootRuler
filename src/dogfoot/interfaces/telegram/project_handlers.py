@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -18,6 +20,8 @@ async def help_command(
         "/project_create <name> [template]",
         "/project_clone <name> <repo_url> [branch]",
         "/project_remove <name> [--force]",
+        "/project_root show",
+        "/project_root set <path> [--migrate]",
         "/new <prompt>",
         "/logs <task_id>",
         "/commit <task_id> <message>",
@@ -162,3 +166,37 @@ async def project_remove_command(
     if removed_active:
         message += "\nactive_project는 해제되었습니다."
     await update.message.reply_text(message)
+
+
+async def project_root_command(
+    runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if not context.args:
+        await update.message.reply_text("/project_root show | /project_root set <path> [--migrate]")
+        return
+
+    subcommand = context.args[0]
+    if subcommand == "show":
+        await update.message.reply_text(f"project_base_root: {runtime.project_manager.project_base_root}")
+        return
+
+    if subcommand == "set":
+        if len(context.args) < 2:
+            await update.message.reply_text("/project_root set <path> [--migrate] 형식으로 입력하세요.")
+            return
+        target = context.args[1]
+        migrate = any(arg == "--migrate" for arg in context.args[2:])
+        try:
+            previous_root, migrated_projects = runtime.project_manager.set_project_base_root(Path(target), migrate=migrate)
+        except Exception as exc:
+            await update.message.reply_text(f"project_root 변경 실패: {exc}")
+            return
+        message = (
+            f"project_base_root 변경 완료:\nold={previous_root}\nnew={runtime.project_manager.project_base_root}"
+        )
+        if migrated_projects:
+            message += f"\nmigrated: {', '.join(migrated_projects)}"
+        await update.message.reply_text(message)
+        return
+
+    await update.message.reply_text("/project_root show | /project_root set <path> [--migrate]")

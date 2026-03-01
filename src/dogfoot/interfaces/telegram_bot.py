@@ -18,6 +18,7 @@ from dogfoot.interfaces.telegram.project_handlers import (
     project_clone_command,
     project_create_command,
     project_list_command,
+    project_root_command,
     project_remove_command,
     project_use_command,
     status_command,
@@ -237,6 +238,7 @@ def main() -> None:
     app.add_handler(CommandHandler("project_create", guard(_bind(project_create_command))))
     app.add_handler(CommandHandler("project_clone", guard(_bind(project_clone_command))))
     app.add_handler(CommandHandler("project_remove", guard(_bind(project_remove_command))))
+    app.add_handler(CommandHandler("project_root", guard(_bind(project_root_command))))
     app.add_handler(CommandHandler("logs", guard(_bind(logs_command))))
     app.add_handler(CommandHandler("new", guard(_bind(new_command))))
     app.add_handler(CommandHandler("cancel", guard(_bind(cancel_command))))
