@@ -107,33 +107,30 @@ async def notify_task_completion(task_id: str, text: str) -> None:
         return
     task_dir = store.resolve_task_dir(task_id)
     try:
-        for chunk in _split_for_telegram(text):
-            await current_runtime.bot.send_message(chat_id=chat_id, text=chunk)
         if task_dir:
             stdout_path = task_dir / "stdout.log"
             if stdout_path.exists():
                 stdout_text = stdout_path.read_text(encoding="utf-8").strip()
                 if stdout_text:
                     for index, chunk in enumerate(
-                        _split_for_telegram(f"Codex output:\n{stdout_text}")
+                        _split_for_telegram(stdout_text)
                     ):
                         prefix = f"[{index + 1}] " if index > 0 else ""
                         await current_runtime.bot.send_message(
                             chat_id=chat_id,
                             text=f"{prefix}{chunk}",
                         )
+                    return
             stderr_path = task_dir / "stderr.log"
             if stderr_path.exists():
                 stderr_text = stderr_path.read_text(encoding="utf-8").strip()
                 if stderr_text:
-                    for index, chunk in enumerate(
-                        _split_for_telegram(f"Codex stderr:\n{stderr_text}")
-                    ):
+                    for index, chunk in enumerate(_split_for_telegram(stderr_text)):
                         prefix = f"[{index + 1}] " if index > 0 else ""
-                        await current_runtime.bot.send_message(
-                            chat_id=chat_id,
-                            text=f"{prefix}{chunk}",
-                        )
+                        await current_runtime.bot.send_message(chat_id=chat_id, text=f"{prefix}{chunk}")
+                    return
+        for chunk in _split_for_telegram(text):
+            await current_runtime.bot.send_message(chat_id=chat_id, text=chunk)
     except Exception:
         logger.exception("Task %s 완료 푸시 실패", task_id)
 

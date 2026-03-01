@@ -200,7 +200,3 @@ async def natural_text_handler(
         return
     chat_id = update.effective_chat.id if update.effective_chat else update.effective_user.id
     task_id = runtime.task_store.create_task(user_id, chat_id, text, active_project)
-    queue_size = runtime.task_store.queue.qsize()
-    await update.message.reply_text(
-        f"작업 {task_id}이(가) 예약되었습니다. project={active_project.name}, 현재 대기 중: {queue_size}개. /status, /diff, /logs를 확인하세요."
-    )

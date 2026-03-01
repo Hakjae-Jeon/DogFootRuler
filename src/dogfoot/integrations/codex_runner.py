@@ -43,4 +43,4 @@ class CodexRunner:
         finally:
             with self._lock:
                 self._processes.pop(task_id, None)
-        return process.returncode or 1, stdout or "", stderr or "", reason
+        return process.returncode if process.returncode is not None else 1, stdout or "", stderr or "", reason
