@@ -3,6 +3,7 @@
 ## 1) 실행
 - WSL에서:
   - `python bot/main.py`
+  - 또는 `.venv/bin/python bot/main.py`
 
 ## 2) 디렉토리 개념
 - project base root: 모든 프로젝트의 상위 폴더
@@ -14,8 +15,14 @@
 2. `/project_use <name>`
 3. 자연어 작업 요청(기본 resume)
 4. 필요 시 `/new <prompt>`
-5. 결과는 Codex output으로 확인
+5. 결과는 Telegram의 Codex output으로 확인
 6. 필요 시 `/logs`, `/commit`
+
+## 3-1) CLI 운영
+- `python dogfoot_cli.py --system-config config/system.yaml project list`
+- `python dogfoot_cli.py --system-config config/system.yaml project clone <name> <repo_url>`
+- `python dogfoot_cli.py --system-config config/system.yaml project root show`
+- `python dogfoot_cli.py --system-config config/system.yaml project root set <path> --migrate`
 
 ## 4) 상시 실행
 - `tmux new -s dfr`
@@ -28,6 +35,7 @@
   - polling 중복 확인
 - 프로젝트 문제:
   - active project 유실 시 `/project_list`, `/project_use`
+  - stale active project는 startup/status/task 진입 시 자동 해제될 수 있음
   - clone 실패 시 URL/네트워크 확인
 - Codex 문제:
   - `git status`

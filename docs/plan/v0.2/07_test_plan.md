@@ -3,6 +3,7 @@
 ## Smoke
 - `/ping`
 - allowlist 외 사용자 거부
+- bot startup validation
 
 ## Project
 - `/project_list`
@@ -10,6 +11,7 @@
 - `/project_clone <name> <url>` 성공/실패
 - `/project_remove <name>` 후 목록 반영
 - `/project_root show|set` 경로 검증
+- CLI `project clone/remove/root` 경로 검증
 
 ## Session
 - 동일 프로젝트 자연어 2회 실행 → `session_mode=resume`
@@ -30,3 +32,7 @@
 - 비 git dir / clone 실패 / 잘못된 root 경로
 - 긴 출력 분할 전송
 - 단일 워커 동시 실행 방지
+
+## Current automated result
+- `pytest tests`
+- expected: all green
