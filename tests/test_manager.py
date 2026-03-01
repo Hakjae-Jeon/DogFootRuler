@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -144,3 +145,16 @@ def test_set_project_base_root_with_migrate_moves_projects(tmp_path: Path) -> No
     assert migrated_projects == ["alpha"]
     assert manager.project_base_root == new_root.resolve()
     assert (new_root / "alpha" / "config" / "project.yaml").exists()
+
+
+def test_recover_active_project_clears_missing_project(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    manager.create_project("alpha", template="python")
+    manager.set_active_project("alpha")
+    shutil.rmtree(tmp_path / "projects" / "alpha")
+
+    recovered_name, recovery_reason = manager.recover_active_project()
+
+    assert recovered_name == "alpha"
+    assert "Project not found" in recovery_reason
+    assert manager.system_config.active_project is None

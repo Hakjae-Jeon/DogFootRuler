@@ -160,9 +160,24 @@ class ProjectManager:
         self.system_config.active_project = name
         self.system_config.save()
 
+    def recover_active_project(self) -> tuple[str | None, str | None]:
+        active_name = self.system_config.active_project
+        if not active_name:
+            return None, None
+        try:
+            self.get_project(active_name)
+        except Exception as exc:
+            self.system_config.active_project = None
+            self.system_config.save()
+            return active_name, str(exc)
+        return None, None
+
     def get_active_project(self) -> Project:
         if not self.system_config.active_project:
             raise ValueError("No active project configured")
+        recovered_name, recovery_reason = self.recover_active_project()
+        if recovered_name:
+            raise ValueError(f"active_project({recovered_name}) was cleared: {recovery_reason}")
         return self.get_project(self.system_config.active_project)
 
     def remove_project(self, name: str, force_delete: bool = False) -> tuple[Path, bool]:

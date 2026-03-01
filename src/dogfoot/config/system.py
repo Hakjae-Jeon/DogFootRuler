@@ -26,7 +26,7 @@ class SystemConfig:
         return cls(
             system_config_path=path,
             project_base_root=Path(str(base_root_value)).resolve(),
-            active_project=raw.get("active_project"),
+            active_project=(raw.get("active_project") or None),
             system_forbidden_subpaths=list(raw.get("system_forbidden_subpaths") or []),
             hard_deny_subpaths=list(raw.get("hard_deny_subpaths") or DEFAULT_HARD_DENY),
         )

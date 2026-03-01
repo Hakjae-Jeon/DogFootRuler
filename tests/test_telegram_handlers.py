@@ -35,6 +35,7 @@ def _make_runtime() -> TelegramRuntime:
     return TelegramRuntime(
         bot=None,
         project_manager=SimpleNamespace(
+            recover_active_project=lambda: (None, None),
             list_projects=lambda: ["alpha", "beta"],
             set_active_project=lambda name: None,
             create_project=lambda name, template="empty": SimpleNamespace(name=name, project_root=f"/tmp/{name}"),
@@ -160,6 +161,23 @@ def test_status_handler_reports_active_project_and_latest_session() -> None:
 
 
 @pytest.mark.integration
+def test_status_handler_reports_recovered_active_project() -> None:
+    runtime = _make_runtime()
+    runtime.project_manager = SimpleNamespace(
+        recover_active_project=lambda: ("alpha", "Project not found: alpha"),
+        system_config=SimpleNamespace(active_project=None),
+        get_active_project=lambda: (_ for _ in ()).throw(ValueError("No active project configured")),
+    )
+    update = _make_update()
+
+    asyncio.run(status_command(runtime, update, _make_context([])))
+
+    text = update.message.reply_text.await_args.args[0]
+    assert "ACTIVE_PROJECT: (none)" in text
+    assert "ACTIVE_PROJECT_STATUS: cleared" in text
+
+
+@pytest.mark.integration
 def test_cancel_handler_updates_running_task() -> None:
     updates: list[tuple[tuple, dict]] = []
     runtime = _make_runtime()
@@ -226,6 +244,7 @@ def test_new_command_forces_new_session() -> None:
 def test_natural_text_handler_reports_missing_active_project() -> None:
     runtime = _make_runtime()
     runtime.project_manager = SimpleNamespace(
+        recover_active_project=lambda: (None, None),
         system_config=SimpleNamespace(active_project=None),
         get_active_project=lambda: (_ for _ in ()).throw(ValueError("No active project configured")),
     )
@@ -239,3 +258,23 @@ def test_natural_text_handler_reports_missing_active_project() -> None:
 
     update.message.reply_text.assert_awaited_once()
     assert "/project_use <name>" in update.message.reply_text.await_args.args[0]
+
+
+@pytest.mark.integration
+def test_natural_text_handler_reports_recovered_active_project() -> None:
+    runtime = _make_runtime()
+    runtime.project_manager = SimpleNamespace(
+        recover_active_project=lambda: ("alpha", "Project not found: alpha"),
+        system_config=SimpleNamespace(active_project="alpha"),
+        get_active_project=lambda: (_ for _ in ()).throw(ValueError("unused")),
+    )
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=7),
+        effective_chat=SimpleNamespace(id=8),
+        message=SimpleNamespace(text="continue work", reply_text=AsyncMock(), reply_document=AsyncMock()),
+    )
+
+    asyncio.run(natural_text_handler(runtime, update, _make_context([])))
+
+    update.message.reply_text.assert_awaited_once()
+    assert "해제되었습니다" in update.message.reply_text.await_args.args[0]

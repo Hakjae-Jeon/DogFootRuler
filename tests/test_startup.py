@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -30,3 +31,14 @@ def test_validate_manager_startup_validates_active_project_runs_dir(tmp_path: Pa
 
     with pytest.raises(NotADirectoryError):
         validate_manager_startup(manager, require_active_project=True)
+
+
+def test_validate_manager_startup_clears_missing_active_project_when_optional(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    manager.create_project("alpha")
+    manager.set_active_project("alpha")
+    shutil.rmtree(tmp_path / "projects" / "alpha")
+
+    validate_manager_startup(manager, require_active_project=False)
+
+    assert manager.system_config.active_project is None

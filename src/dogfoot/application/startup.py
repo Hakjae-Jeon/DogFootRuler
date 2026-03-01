@@ -22,6 +22,8 @@ def validate_manager_startup(
     if not base_root.is_dir():
         raise NotADirectoryError(f"project_base_root is not a directory: {base_root}")
 
+    manager.recover_active_project()
+
     if not require_active_project:
         return
 

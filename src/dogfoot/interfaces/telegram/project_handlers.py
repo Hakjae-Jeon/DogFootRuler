@@ -35,8 +35,12 @@ async def status_command(
     runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     summary = runtime.task_store.status_summary()
+    recovered_name, recovery_reason = runtime.project_manager.recover_active_project()
     active_project_name = runtime.project_manager.system_config.active_project or "(none)"
     active_lines = [f"ACTIVE_PROJECT: {active_project_name}"]
+    if recovered_name:
+        active_lines.append(f"ACTIVE_PROJECT_STATUS: cleared ({recovered_name}: {recovery_reason})")
+        active_lines.append("복구: /project_list 후 /project_use <name>")
     if runtime.project_manager.system_config.active_project:
         try:
             active_project = runtime.project_manager.get_active_project()
@@ -55,6 +59,7 @@ async def status_command(
 async def project_list_command(
     runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
+    recovered_name, recovery_reason = runtime.project_manager.recover_active_project()
     projects = runtime.project_manager.list_projects()
     active_project_name = runtime.project_manager.system_config.active_project or "(none)"
     if not projects:
@@ -65,6 +70,8 @@ async def project_list_command(
             suffix = " *" if name == active_project_name else ""
             lines.append(f"{name}{suffix}")
         text = "프로젝트 목록:\n" + "\n".join(lines) + f"\nactive={active_project_name}"
+    if recovered_name:
+        text += f"\nactive_project가 해제되었습니다: {recovered_name} ({recovery_reason})"
     await update.message.reply_text(text)
 
 

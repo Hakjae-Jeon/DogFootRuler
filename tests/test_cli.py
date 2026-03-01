@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,20 @@ def test_cli_project_root_show_and_set(tmp_path: Path, capsys) -> None:
     assert "project_base_root updated" in output
     manager = ProjectManager.load(system_config)
     assert manager.project_base_root == new_root.resolve()
+
+
+def test_cli_project_list_clears_missing_active_project(tmp_path: Path, capsys) -> None:
+    system_config = write_system_config(tmp_path)
+    manager = ProjectManager.load(system_config)
+    manager.create_project("alpha", template="python")
+    manager.set_active_project("alpha")
+    shutil.rmtree(tmp_path / "projects" / "alpha")
+
+    exit_code = main(["--system-config", str(system_config), "project", "list"])
+
+    assert exit_code == 0
+    reloaded = ProjectManager.load(system_config)
+    assert reloaded.system_config.active_project is None
 
 
 def test_cli_fails_when_system_config_missing(tmp_path: Path) -> None:
