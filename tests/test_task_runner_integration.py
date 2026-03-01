@@ -149,3 +149,24 @@ def test_task_runner_honors_canceled_status_after_codex_run(tmp_path: Path) -> N
     assert meta["status"] == Status.CANCELED
     assert meta["notes"] == "사용자 취소"
     assert (task_dir / "summary.md").read_text(encoding="utf-8").find("사용자 취소") >= 0
+
+
+@pytest.mark.integration
+def test_task_runner_marks_failed_when_no_changes_detected(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    project = manager.create_project("alpha", template="python")
+    _init_git_repo(project.project_root)
+    store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
+
+    def action(task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
+        return 0, "", "", ""
+
+    runner = _make_runner(manager, store, FakeCodexRunner(action))
+    _notifier.messages.clear()
+    task_id = store.create_task(user_id=1, chat_id=2, text="no changes", project=project)
+
+    asyncio.run(runner.process_task(task_id))
+
+    meta = store.load_task_meta(task_id)
+    assert meta["status"] == Status.FAILED
+    assert "No changed files were detected" in str(meta["notes"])

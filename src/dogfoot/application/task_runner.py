@@ -101,6 +101,7 @@ class TaskRunner:
             elif diff_path.exists():
                 diff_path.unlink()
             try:
+                changed_files = project.policy.normalize_change_paths(changed_files)
                 project.assert_changes_allowed(changed_files)
             except PolicyViolation as exc:
                 failure_summary = mask_sensitive(f"Task {task_id} 정책 위반: {exc}")

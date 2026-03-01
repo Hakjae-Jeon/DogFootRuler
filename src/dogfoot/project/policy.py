@@ -60,6 +60,8 @@ class PathPolicy:
         )
 
     def normalize_change_path(self, path_value: str) -> PurePosixPath:
+        if not isinstance(path_value, str) or not path_value.strip():
+            raise PolicyViolation("Changed file path cannot be empty")
         raw = Path(path_value)
         if raw.is_absolute():
             raise PolicyViolation(f"Absolute path is not allowed: {path_value}")
@@ -72,6 +74,17 @@ class PathPolicy:
         if rel_posix == PurePosixPath("."):
             raise PolicyViolation("Project root itself is not a valid changed file path")
         return rel_posix
+
+    def normalize_change_paths(self, changed_files: Iterable[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for changed_file in changed_files:
+            rel_path = self.normalize_change_path(changed_file).as_posix()
+            if rel_path in seen:
+                continue
+            seen.add(rel_path)
+            normalized.append(rel_path)
+        return normalized
 
     def is_path_allowed(self, path_value: str) -> bool:
         try:
@@ -93,6 +106,9 @@ class PathPolicy:
         return any(_matches_prefix(rel_path, allowed) for allowed in self.allowed_subpaths)
 
     def assert_changes_allowed(self, changed_files: Iterable[str]) -> None:
-        for changed_file in changed_files:
+        normalized = self.normalize_change_paths(changed_files)
+        if not normalized:
+            raise PolicyViolation("No changed files were detected")
+        for changed_file in normalized:
             if not self.is_path_allowed(changed_file):
                 raise PolicyViolation(f"Change is not allowed: {changed_file}")

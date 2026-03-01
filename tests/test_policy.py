@@ -59,3 +59,15 @@ def test_assert_changes_allowed_raises_for_disallowed_change(tmp_path: Path) -> 
     policy = make_policy(tmp_path, allowed_subpaths=["src"])
     with pytest.raises(PolicyViolation):
         policy.assert_changes_allowed(["src/app.py", "README.md"])
+
+
+def test_assert_changes_allowed_rejects_empty_change_list(tmp_path: Path) -> None:
+    policy = make_policy(tmp_path)
+    with pytest.raises(PolicyViolation):
+        policy.assert_changes_allowed([])
+
+
+def test_normalize_change_paths_deduplicates_and_normalizes(tmp_path: Path) -> None:
+    policy = make_policy(tmp_path)
+    normalized = policy.normalize_change_paths(["src//app.py", "./src/app.py", "src/app.py"])
+    assert normalized == ["src/app.py"]

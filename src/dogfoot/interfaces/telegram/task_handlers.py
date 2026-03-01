@@ -11,6 +11,13 @@ from dogfoot.project.policy import PolicyViolation
 from dogfoot.tasks.models import Status
 
 
+def _validated_changed_files(runtime: TelegramRuntime, meta: dict, task_id: str) -> list[str]:
+    project = runtime.project_loader(meta)
+    changed_files = project.policy.normalize_change_paths(meta.get("changed_files") or [])
+    project.assert_changes_allowed(changed_files)
+    return changed_files
+
+
 async def diff_command(
     runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -118,9 +125,8 @@ async def apply_command(
     if not runtime.git_client.workspace_is_clean(project.project_root):
         await update.message.reply_text("작업 트리가 깨끗해야 합니다. `git status`를 확인하세요.")
         return
-    changed_files = list(meta.get("changed_files") or [])
     try:
-        project.assert_changes_allowed(changed_files)
+        changed_files = _validated_changed_files(runtime, meta, task_id)
     except PolicyViolation as exc:
         runtime.task_store.update_meta(task_id, status=Status.FAILED, notes=str(exc))
         await update.message.reply_text(f"정책 위반으로 적용할 수 없습니다: {exc}")
@@ -166,14 +172,13 @@ async def commit_command(
     if status != Status.APPLIED:
         await update.message.reply_text(f"{task_id}이 아직 적용 상태가 아닙니다 (현재 {status}).")
         return
-    project = runtime.project_loader(meta)
-    changed_files = list(meta.get("changed_files") or [])
     try:
-        project.assert_changes_allowed(changed_files)
+        changed_files = _validated_changed_files(runtime, meta, task_id)
     except PolicyViolation as exc:
         runtime.task_store.update_meta(task_id, status=Status.FAILED, notes=str(exc))
         await update.message.reply_text(f"정책 위반으로 커밋할 수 없습니다: {exc}")
         return
+    project = runtime.project_loader(meta)
     branch = meta.get("branch") or runtime.git_client.ensure_task_branch(task_id, project.project_root)
     ok, err = runtime.git_client.checkout_branch(branch, project.project_root)
     if not ok:
@@ -213,14 +218,13 @@ async def merge_command(
     if status != Status.COMMITTED:
         await update.message.reply_text(f"{task_id}은 커밋되지 않았습니다 (현재 {status}).")
         return
-    project = runtime.project_loader(meta)
-    changed_files = list(meta.get("changed_files") or [])
     try:
-        project.assert_changes_allowed(changed_files)
+        changed_files = _validated_changed_files(runtime, meta, task_id)
     except PolicyViolation as exc:
         runtime.task_store.update_meta(task_id, status=Status.FAILED, notes=str(exc))
         await update.message.reply_text(f"정책 위반으로 머지할 수 없습니다: {exc}")
         return
+    project = runtime.project_loader(meta)
     branch = meta.get("branch") or runtime.git_client.ensure_task_branch(task_id, project.project_root)
     if not runtime.git_client.workspace_is_clean(project.project_root):
         await update.message.reply_text("main 브랜치를 병합하려면 작업 트리가 깨끗해야 합니다.")
