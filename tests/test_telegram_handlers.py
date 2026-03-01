@@ -11,6 +11,7 @@ from dogfoot.interfaces.telegram.project_handlers import (
     project_clone_command,
     project_create_command,
     project_list_command,
+    project_remove_command,
     status_command,
     project_use_command,
 )
@@ -36,10 +37,12 @@ def _make_runtime() -> TelegramRuntime:
             set_active_project=lambda name: None,
             create_project=lambda name, template="empty": SimpleNamespace(name=name, project_root=f"/tmp/{name}"),
             clone_project=lambda name, repo_url, branch=None: SimpleNamespace(name=name, project_root=f"/tmp/{name}"),
+            remove_project=lambda name, force_delete=False: (f"/tmp/.trash/{name}", name == "alpha"),
             get_active_project=lambda: active_project,
             system_config=SimpleNamespace(active_project="alpha"),
         ),
         task_store=SimpleNamespace(
+            tasks={},
             load_task_meta=lambda task_id: {"status": Status.QUEUED},
             update_meta=lambda *args, **kwargs: None,
             latest_session_id_for_project=lambda project_name: "session-1",
@@ -98,6 +101,19 @@ def test_project_clone_handler_reports_cloned_project() -> None:
 
     update.message.reply_text.assert_awaited_once()
     assert "delta" in update.message.reply_text.await_args.args[0]
+
+
+@pytest.mark.integration
+def test_project_remove_handler_reports_removed_project() -> None:
+    runtime = _make_runtime()
+    update = _make_update()
+
+    asyncio.run(project_remove_command(runtime, update, _make_context(["alpha"])))
+
+    update.message.reply_text.assert_awaited_once()
+    text = update.message.reply_text.await_args.args[0]
+    assert "trash" in text
+    assert "active_project는 해제되었습니다" in text
 
 
 @pytest.mark.integration

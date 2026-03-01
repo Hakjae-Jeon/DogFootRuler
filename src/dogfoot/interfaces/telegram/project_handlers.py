@@ -17,6 +17,7 @@ async def help_command(
         "/project_use <name>",
         "/project_create <name> [template]",
         "/project_clone <name> <repo_url> [branch]",
+        "/project_remove <name> [--force]",
         "/new <prompt>",
         "/logs <task_id>",
         "/commit <task_id> <message>",
@@ -113,3 +114,51 @@ async def project_clone_command(
     await update.message.reply_text(
         f"프로젝트 {project.name} clone 완료: {project.project_root}\n/project_use {project.name} 로 활성화하세요."
     )
+
+
+async def project_remove_command(
+    runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if not context.args:
+        await update.message.reply_text("/project_remove <name> [--force] 형식으로 입력하세요.")
+        return
+    name = context.args[0]
+    force = any(arg == "--force" for arg in context.args[1:])
+
+    active_statuses = {"QUEUED", "RUNNING"}
+    project_task_ids = [
+        task_id
+        for task_id, meta in runtime.task_store.tasks.items()
+        if meta.get("project_name") == name and meta.get("status") in active_statuses
+    ]
+    if project_task_ids and not force:
+        await update.message.reply_text(
+            f"진행 중 task가 있어 제거할 수 없습니다: {', '.join(project_task_ids[:5])}\n--force를 사용하면 취소 후 제거합니다."
+        )
+        return
+
+    if force:
+        for task_id in project_task_ids:
+            meta = runtime.task_store.load_task_meta(task_id)
+            status = meta.get("status")
+            if status == "RUNNING":
+                runtime.codex_runner.cancel(task_id)
+            runtime.task_store.update_meta(
+                task_id,
+                status="CANCELED",
+                notes="프로젝트 제거(--force)로 취소",
+            )
+
+    try:
+        destination, removed_active = runtime.project_manager.remove_project(name, force_delete=force)
+    except Exception as exc:
+        await update.message.reply_text(f"프로젝트 제거 실패: {exc}")
+        return
+
+    if force:
+        message = f"프로젝트 {name}을(를) 영구 삭제했습니다: {destination}"
+    else:
+        message = f"프로젝트 {name}을(를) trash로 이동했습니다: {destination}"
+    if removed_active:
+        message += "\nactive_project는 해제되었습니다."
+    await update.message.reply_text(message)

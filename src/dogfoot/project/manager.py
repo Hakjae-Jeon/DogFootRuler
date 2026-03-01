@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dogfoot.config.system import SystemConfig
@@ -162,3 +164,24 @@ class ProjectManager:
         if not self.system_config.active_project:
             raise ValueError("No active project configured")
         return self.get_project(self.system_config.active_project)
+
+    def remove_project(self, name: str, force_delete: bool = False) -> tuple[Path, bool]:
+        project_root = self.resolve_project_root(name)
+        if not project_root.exists():
+            raise FileNotFoundError(f"Project not found: {name}")
+
+        removed_active = self.system_config.active_project == name
+        if force_delete:
+            shutil.rmtree(project_root)
+            destination = project_root
+        else:
+            trash_root = self.project_base_root / ".trash"
+            trash_root.mkdir(parents=True, exist_ok=True)
+            suffix = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            destination = trash_root / f"{name}-{suffix}"
+            shutil.move(str(project_root), str(destination))
+
+        if removed_active:
+            self.system_config.active_project = None
+            self.system_config.save()
+        return destination, removed_active

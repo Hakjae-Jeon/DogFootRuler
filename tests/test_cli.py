@@ -77,6 +77,20 @@ def test_cli_project_clone(tmp_path: Path, capsys) -> None:
     assert (tmp_path / "projects" / "beta" / "config" / "project.yaml").exists()
 
 
+def test_cli_project_remove_moves_project_to_trash(tmp_path: Path, capsys) -> None:
+    system_config = write_system_config(tmp_path)
+    manager = ProjectManager.load(system_config)
+    manager.create_project("alpha", template="python")
+    manager.set_active_project("alpha")
+
+    exit_code = main(["--system-config", str(system_config), "project", "remove", "alpha"])
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "trashed alpha" in output
+    assert not (tmp_path / "projects" / "alpha").exists()
+    assert (tmp_path / "projects" / ".trash").is_dir()
+
+
 def test_cli_fails_when_system_config_missing(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--system-config", str(tmp_path / "missing.yaml"), "project", "list"])

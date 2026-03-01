@@ -117,3 +117,17 @@ def test_clone_project_from_local_repo(tmp_path: Path) -> None:
     assert (project.project_root / "README.md").exists()
     assert (project.project_root / "config" / "project.yaml").exists()
     assert (project.project_root / "runs").is_dir()
+
+
+def test_remove_project_moves_to_trash_and_clears_active(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    manager.create_project("alpha", template="python")
+    manager.set_active_project("alpha")
+
+    destination, removed_active = manager.remove_project("alpha")
+
+    assert removed_active is True
+    assert destination.exists()
+    assert destination.parent.name == ".trash"
+    assert manager.system_config.active_project is None
+    assert not (tmp_path / "projects" / "alpha").exists()

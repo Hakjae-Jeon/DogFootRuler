@@ -43,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
     clone_parser.add_argument("repo_url")
     clone_parser.add_argument("--branch", default=None)
 
+    remove_parser = project_subparsers.add_parser("remove")
+    remove_parser.add_argument("name")
+    remove_parser.add_argument("--force", action="store_true")
+
     use_parser = project_subparsers.add_parser("use")
     use_parser.add_argument("name")
 
@@ -69,6 +73,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.domain == "project" and args.command == "clone":
         project = manager.clone_project(args.name, args.repo_url, branch=args.branch)
         print(f"cloned {project.name} at {project.project_root}")
+        return 0
+
+    if args.domain == "project" and args.command == "remove":
+        destination, removed_active = manager.remove_project(args.name, force_delete=args.force)
+        action = "deleted" if args.force else "trashed"
+        message = f"{action} {args.name} -> {destination}"
+        if removed_active:
+            message += " (active cleared)"
+        print(message)
         return 0
 
     if args.domain == "project" and args.command == "use":
