@@ -16,6 +16,7 @@ async def help_command(
         "/project_list",
         "/project_use <name>",
         "/project_create <name> [template]",
+        "/project_clone <name> <repo_url> [branch]",
         "/new <prompt>",
         "/logs <task_id>",
         "/commit <task_id> <message>",
@@ -92,4 +93,23 @@ async def project_create_command(
         return
     await update.message.reply_text(
         f"프로젝트 {project.name} 생성 완료: {project.project_root}\n/project_use {project.name} 로 활성화하세요."
+    )
+
+
+async def project_clone_command(
+    runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if len(context.args) < 2:
+        await update.message.reply_text("/project_clone <name> <repo_url> [branch] 형식으로 입력하세요.")
+        return
+    name = context.args[0]
+    repo_url = context.args[1]
+    branch = context.args[2] if len(context.args) > 2 else None
+    try:
+        project = runtime.project_manager.clone_project(name, repo_url, branch=branch)
+    except Exception as exc:
+        await update.message.reply_text(f"프로젝트 clone 실패: {exc}")
+        return
+    await update.message.reply_text(
+        f"프로젝트 {project.name} clone 완료: {project.project_root}\n/project_use {project.name} 로 활성화하세요."
     )

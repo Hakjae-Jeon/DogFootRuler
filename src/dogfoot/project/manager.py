@@ -81,6 +81,21 @@ class ProjectManager:
         if changed or not ignore_path.exists():
             ignore_path.write_text("\n".join(merged) + "\n", encoding="utf-8")
 
+    def _write_project_config(self, project_root: Path, name: str) -> None:
+        config_dir = project_root / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = config_dir / "project.yaml"
+        config_path.write_text(
+            dump_simple_yaml(
+                {
+                    "name": name,
+                    "forbidden_subpaths": [],
+                    "allowed_subpaths": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def create_project(self, name: str, template: str = "empty") -> Project:
         if template not in {"empty", "python", "node"}:
             raise ValueError(f"Unsupported template: {template}")
@@ -102,18 +117,29 @@ class ProjectManager:
             src_dir.mkdir(parents=True, exist_ok=True)
             (src_dir / "index.js").write_text("console.log('hello');\n", encoding="utf-8")
 
-        config_path = project_root / "config" / "project.yaml"
-        config_path.write_text(
-            dump_simple_yaml(
-                {
-                    "name": name,
-                    "forbidden_subpaths": [],
-                    "allowed_subpaths": [],
-                }
-            ),
-            encoding="utf-8",
-        )
+        self._write_project_config(project_root, name)
         self._initialize_git_repo(project_root)
+        return self.get_project(name)
+
+    def clone_project(self, name: str, repo_url: str, branch: str | None = None) -> Project:
+        project_root = self.resolve_project_root(name)
+        if project_root.exists():
+            raise FileExistsError(f"Project already exists: {name}")
+
+        args = ["clone"]
+        if branch:
+            args.extend(["--branch", branch, "--single-branch"])
+        args.extend([repo_url, str(project_root)])
+        result = self._run_git(self.project_base_root, args)
+        if result.returncode != 0:
+            if project_root.exists():
+                subprocess.run(["rm", "-rf", str(project_root)], check=False)
+            detail = result.stderr.strip() or result.stdout.strip() or "unknown git error"
+            raise RuntimeError(f"Git clone failed ({repo_url}): {detail}")
+
+        (project_root / "runs").mkdir(parents=True, exist_ok=True)
+        self._ensure_project_ignore_rules(project_root)
+        self._write_project_config(project_root, name)
         return self.get_project(name)
 
     def get_project(self, name: str) -> Project:

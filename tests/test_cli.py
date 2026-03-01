@@ -47,6 +47,36 @@ def test_cli_project_use_updates_active_project(tmp_path: Path, capsys) -> None:
     assert manager.system_config.active_project == "alpha"
 
 
+def test_cli_project_clone(tmp_path: Path, capsys) -> None:
+    system_config = write_system_config(tmp_path)
+    remote_root = tmp_path / "remote-src"
+    remote_root.mkdir(parents=True, exist_ok=True)
+    (remote_root / "README.md").write_text("# remote\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-b", "main"], cwd=remote_root, capture_output=True, text=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "DogFootRuler Test"],
+        cwd=remote_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "dogfoot@example.com"],
+        cwd=remote_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(["git", "add", "-A"], cwd=remote_root, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=remote_root, capture_output=True, text=True, check=True)
+
+    exit_code = main(["--system-config", str(system_config), "project", "clone", "beta", str(remote_root)])
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "cloned beta" in output
+    assert (tmp_path / "projects" / "beta" / "config" / "project.yaml").exists()
+
+
 def test_cli_fails_when_system_config_missing(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--system-config", str(tmp_path / "missing.yaml"), "project", "list"])

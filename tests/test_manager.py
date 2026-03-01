@@ -87,3 +87,33 @@ def test_invalid_project_names_are_rejected(tmp_path: Path) -> None:
     manager = ProjectManager.load(write_system_config(tmp_path))
     with pytest.raises(ValueError):
         manager.create_project("../escape")
+
+
+def test_clone_project_from_local_repo(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    remote_root = tmp_path / "remote-src"
+    remote_root.mkdir(parents=True, exist_ok=True)
+    (remote_root / "README.md").write_text("# remote\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-b", "main"], cwd=remote_root, capture_output=True, text=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "DogFootRuler Test"],
+        cwd=remote_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "dogfoot@example.com"],
+        cwd=remote_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(["git", "add", "-A"], cwd=remote_root, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=remote_root, capture_output=True, text=True, check=True)
+
+    project = manager.clone_project("alpha", str(remote_root))
+
+    assert (project.project_root / "README.md").exists()
+    assert (project.project_root / "config" / "project.yaml").exists()
+    assert (project.project_root / "runs").is_dir()

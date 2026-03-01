@@ -8,6 +8,7 @@ import pytest
 
 from dogfoot.interfaces.telegram.context import TelegramRuntime
 from dogfoot.interfaces.telegram.project_handlers import (
+    project_clone_command,
     project_create_command,
     project_list_command,
     status_command,
@@ -34,6 +35,7 @@ def _make_runtime() -> TelegramRuntime:
             list_projects=lambda: ["alpha", "beta"],
             set_active_project=lambda name: None,
             create_project=lambda name, template="empty": SimpleNamespace(name=name, project_root=f"/tmp/{name}"),
+            clone_project=lambda name, repo_url, branch=None: SimpleNamespace(name=name, project_root=f"/tmp/{name}"),
             get_active_project=lambda: active_project,
             system_config=SimpleNamespace(active_project="alpha"),
         ),
@@ -85,6 +87,17 @@ def test_project_create_handler_reports_created_project() -> None:
 
     update.message.reply_text.assert_awaited_once()
     assert "gamma" in update.message.reply_text.await_args.args[0]
+
+
+@pytest.mark.integration
+def test_project_clone_handler_reports_cloned_project() -> None:
+    runtime = _make_runtime()
+    update = _make_update()
+
+    asyncio.run(project_clone_command(runtime, update, _make_context(["delta", "https://example.com/repo.git"])))
+
+    update.message.reply_text.assert_awaited_once()
+    assert "delta" in update.message.reply_text.await_args.args[0]
 
 
 @pytest.mark.integration

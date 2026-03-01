@@ -38,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
     create_parser.add_argument("name")
     create_parser.add_argument("--template", default="empty", choices=["empty", "python", "node"])
 
+    clone_parser = project_subparsers.add_parser("clone")
+    clone_parser.add_argument("name")
+    clone_parser.add_argument("repo_url")
+    clone_parser.add_argument("--branch", default=None)
+
     use_parser = project_subparsers.add_parser("use")
     use_parser.add_argument("name")
 
@@ -59,6 +64,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.domain == "project" and args.command == "create":
         project = manager.create_project(args.name, template=args.template)
         print(f"created {project.name} at {project.project_root}")
+        return 0
+
+    if args.domain == "project" and args.command == "clone":
+        project = manager.clone_project(args.name, args.repo_url, branch=args.branch)
+        print(f"cloned {project.name} at {project.project_root}")
         return 0
 
     if args.domain == "project" and args.command == "use":
