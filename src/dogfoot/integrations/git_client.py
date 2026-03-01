@@ -31,6 +31,9 @@ class GitClient:
             return False, result.stderr.strip() or result.stdout.strip()
         return True, ""
 
+    def current_branch(self, project_root: Path) -> str:
+        return self.run(["branch", "--show-current"], cwd=project_root).stdout.strip()
+
     def apply_diff_file(self, diff_path: Path, project_root: Path) -> subprocess.CompletedProcess:
         return self.run(["apply", "--whitespace=fix", str(diff_path)], cwd=project_root)
 
@@ -53,7 +56,10 @@ class GitClient:
     def merge_abort(self, project_root: Path) -> None:
         self.run(["merge", "--abort"], cwd=project_root)
 
-    def tidy_workspace(self, project_root: Path) -> None:
+    def discard_workspace_changes(self, project_root: Path) -> None:
         self.run(["reset", "--hard"], cwd=project_root)
         self.run(["clean", "-fd", "-e", "runs"], cwd=project_root)
+
+    def tidy_workspace(self, project_root: Path) -> None:
+        self.discard_workspace_changes(project_root)
         self.checkout_branch(self.main_branch, project_root)

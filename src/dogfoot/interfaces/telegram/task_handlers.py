@@ -103,51 +103,18 @@ async def apply_command(
     runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     if not context.args:
-        await update.message.reply_text("/apply <task_id>로 diff를 적용하세요.")
+        await update.message.reply_text("/apply <task_id>는 더 이상 필요하지 않습니다. 성공한 작업은 즉시 반영됩니다.")
         return
     task_id = context.args[0]
     meta = runtime.task_store.load_task_meta(task_id)
     if not meta:
         await update.message.reply_text(f"{task_id} 메타가 없습니다.")
         return
-    if meta.get("status") != Status.READY_TO_APPLY:
-        await update.message.reply_text(f"{task_id} 상태가 {meta.get('status')}라 적용할 수 없습니다.")
+    status = meta.get("status")
+    if status in {Status.APPLIED, Status.COMMITTED}:
+        await update.message.reply_text(f"{task_id}은 이미 작업 트리에 반영된 상태입니다 ({status}).")
         return
-    task_dir = runtime.task_store.resolve_task_dir(task_id)
-    if not task_dir:
-        await update.message.reply_text(f"{task_id} 디렉토리를 찾을 수 없습니다.")
-        return
-    diff_path = task_dir / "diff.patch"
-    if not diff_path.exists():
-        await update.message.reply_text(f"{task_id}에 diff가 없습니다.")
-        return
-    project = runtime.project_loader(meta)
-    if not runtime.git_client.workspace_is_clean(project.project_root):
-        await update.message.reply_text("작업 트리가 깨끗해야 합니다. `git status`를 확인하세요.")
-        return
-    try:
-        changed_files = _validated_changed_files(runtime, meta, task_id)
-    except PolicyViolation as exc:
-        runtime.task_store.update_meta(task_id, status=Status.FAILED, notes=str(exc))
-        await update.message.reply_text(f"정책 위반으로 적용할 수 없습니다: {exc}")
-        return
-    branch = meta.get("branch") or runtime.git_client.ensure_task_branch(task_id, project.project_root)
-    ok, err = runtime.git_client.checkout_branch(branch, project.project_root)
-    if not ok:
-        await update.message.reply_text(f"브랜치 체크아웃 실패: {err}")
-        return
-    apply_result = runtime.git_client.apply_diff_file(diff_path, project.project_root)
-    if apply_result.returncode != 0:
-        await update.message.reply_text(f"diff 적용 실패: {apply_result.stderr.strip()}")
-        return
-    runtime.git_client.stage_all(project.project_root)
-    runtime.task_store.update_meta(
-        task_id,
-        status=Status.APPLIED,
-        applied_at=datetime.now(timezone.utc).isoformat(),
-        notes="diff 수동 적용 완료",
-    )
-    await update.message.reply_text(f"{task_id} diff가 {branch}에 적용되었습니다.")
+    await update.message.reply_text(f"{task_id} 상태가 {status}입니다. 자동 반영 모드에서는 수동 /apply를 사용하지 않습니다.")
 
 
 async def commit_command(
@@ -179,11 +146,13 @@ async def commit_command(
         await update.message.reply_text(f"정책 위반으로 커밋할 수 없습니다: {exc}")
         return
     project = runtime.project_loader(meta)
-    branch = meta.get("branch") or runtime.git_client.ensure_task_branch(task_id, project.project_root)
-    ok, err = runtime.git_client.checkout_branch(branch, project.project_root)
-    if not ok:
-        await update.message.reply_text(f"브랜치 체크아웃 실패: {err}")
+    current_branch = runtime.git_client.current_branch(project.project_root)
+    if current_branch != runtime.git_client.main_branch:
+        await update.message.reply_text(
+            f"자동 반영 모드에서는 {runtime.git_client.main_branch}에서만 커밋합니다. 현재 브랜치: {current_branch}"
+        )
         return
+    runtime.git_client.stage_all(project.project_root)
     commit_result = runtime.git_client.commit(message, project.project_root)
     if commit_result.returncode != 0:
         await update.message.reply_text(f"커밋 실패: {commit_result.stderr.strip()}")
@@ -195,60 +164,25 @@ async def commit_command(
         commit_hash=head,
         commit_message=message,
         committed_at=datetime.now(timezone.utc).isoformat(),
-        notes="PR5 커밋 완료",
+        notes="자동 반영된 변경을 main에서 커밋 완료",
     )
-    await update.message.reply_text(f"{task_id} 커밋 완료: {head}")
+    await update.message.reply_text(f"{task_id} 변경을 main에 커밋했습니다: {head}")
 
 
 async def merge_command(
     runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     if not context.args:
-        await update.message.reply_text("/merge <task_id>로 main에 병합하세요.")
+        await update.message.reply_text("/merge <task_id>는 자동 반영 모드에서 필요하지 않습니다.")
         return
     task_id = context.args[0]
     meta = runtime.task_store.load_task_meta(task_id)
     if not meta:
         await update.message.reply_text(f"{task_id} 메타가 없습니다.")
         return
-    status = meta.get("status")
-    if status == Status.MERGED:
-        await update.message.reply_text(f"{task_id}은 이미 main에 병합되었습니다.")
-        return
-    if status != Status.COMMITTED:
-        await update.message.reply_text(f"{task_id}은 커밋되지 않았습니다 (현재 {status}).")
-        return
-    try:
-        changed_files = _validated_changed_files(runtime, meta, task_id)
-    except PolicyViolation as exc:
-        runtime.task_store.update_meta(task_id, status=Status.FAILED, notes=str(exc))
-        await update.message.reply_text(f"정책 위반으로 머지할 수 없습니다: {exc}")
-        return
-    project = runtime.project_loader(meta)
-    branch = meta.get("branch") or runtime.git_client.ensure_task_branch(task_id, project.project_root)
-    if not runtime.git_client.workspace_is_clean(project.project_root):
-        await update.message.reply_text("main 브랜치를 병합하려면 작업 트리가 깨끗해야 합니다.")
-        return
-    ok, err = runtime.git_client.checkout_branch(runtime.git_client.main_branch, project.project_root)
-    if not ok:
-        await update.message.reply_text(f"{runtime.git_client.main_branch} 체크아웃 실패: {err}")
-        return
-    merge_result = runtime.git_client.merge_no_ff(branch, project.project_root)
-    if merge_result.returncode != 0:
-        runtime.git_client.merge_abort(project.project_root)
-        await update.message.reply_text(
-            f"병합 실패: {merge_result.stderr.strip() or merge_result.stdout.strip()}"
-        )
-        return
-    merge_commit = runtime.git_client.head(project.project_root)
-    runtime.task_store.update_meta(
-        task_id,
-        status=Status.MERGED,
-        merge_commit=merge_commit,
-        merged_at=datetime.now(timezone.utc).isoformat(),
-        notes="PR5 머지 완료",
+    await update.message.reply_text(
+        f"{task_id}은 이미 {runtime.git_client.main_branch} 작업 트리에 직접 반영되는 방식입니다. /merge는 사용하지 않습니다."
     )
-    await update.message.reply_text(f"{task_id}이 main에 병합되었습니다 ({merge_commit}).")
 
 
 async def natural_text_handler(
@@ -268,5 +202,5 @@ async def natural_text_handler(
     task_id = runtime.task_store.create_task(user_id, chat_id, text, active_project)
     queue_size = runtime.task_store.queue.qsize()
     await update.message.reply_text(
-        f"작업 {task_id}이(가) 예약되었습니다. project={active_project.name}, 현재 대기 중: {queue_size}개. /status, /diff, /apply를 확인하세요."
+        f"작업 {task_id}이(가) 예약되었습니다. project={active_project.name}, 현재 대기 중: {queue_size}개. /status, /diff, /logs를 확인하세요."
     )

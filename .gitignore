@@ -3,4 +3,5 @@ config/allowed_users.yaml
 config/system.yaml
 .venv/
 runs/
+**/runs/
 __pycache__/

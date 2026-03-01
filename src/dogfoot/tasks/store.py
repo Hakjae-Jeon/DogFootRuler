@@ -61,7 +61,7 @@ class TaskStore:
             if status:
                 meta["status"] = status
             else:
-                meta.setdefault("status", Status.READY_TO_APPLY)
+                meta.setdefault("status", Status.APPLIED)
             return meta
         except json.JSONDecodeError:
             return {}

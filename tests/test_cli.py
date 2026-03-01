@@ -17,6 +17,7 @@ def test_cli_project_create_and_list(tmp_path: Path, capsys) -> None:
     assert exit_code == 0
     output = capsys.readouterr().out
     assert "created alpha" in output
+    assert (tmp_path / "projects" / "alpha" / ".gitignore").read_text(encoding="utf-8").find("runs/") >= 0
     branch = subprocess.run(
         ["git", "branch", "--show-current"],
         cwd=tmp_path / "projects" / "alpha",

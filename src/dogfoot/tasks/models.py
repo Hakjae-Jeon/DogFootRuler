@@ -24,7 +24,7 @@ class Status:
     }
 
 
-STATUS_ALIASES: dict[str, str] = {"DONE": Status.READY_TO_APPLY}
+STATUS_ALIASES: dict[str, str] = {"DONE": Status.APPLIED}
 
 
 def canonical_status(raw: Any) -> str | None:

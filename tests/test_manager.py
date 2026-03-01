@@ -38,6 +38,7 @@ def test_create_project_and_select_active_project(tmp_path: Path) -> None:
     assert project.project_root == (tmp_path / "projects" / "alpha").resolve()
     assert (project.project_root / "config" / "project.yaml").exists()
     assert (project.project_root / "src" / "main.py").exists()
+    assert (project.project_root / ".gitignore").read_text(encoding="utf-8").find("runs/") >= 0
     assert (project.project_root / ".git").is_dir()
     branch = subprocess.run(
         ["git", "branch", "--show-current"],

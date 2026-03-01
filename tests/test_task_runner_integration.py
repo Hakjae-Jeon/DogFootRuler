@@ -74,7 +74,7 @@ def _make_runner(
 
 
 @pytest.mark.integration
-def test_task_runner_success_creates_summary_diff_and_ready_state(tmp_path: Path) -> None:
+def test_task_runner_success_applies_changes_to_main_worktree(tmp_path: Path) -> None:
     manager = ProjectManager.load(write_system_config(tmp_path))
     project = manager.create_project("alpha", template="python")
     _init_git_repo(project.project_root)
@@ -93,11 +93,20 @@ def test_task_runner_success_creates_summary_diff_and_ready_state(tmp_path: Path
 
     meta = store.load_task_meta(task_id)
     task_dir = store.resolve_task_dir(task_id)
-    assert meta["status"] == Status.READY_TO_APPLY
+    assert meta["status"] == Status.APPLIED
     assert meta["changed_files"] == ["src/main.py"]
     assert (task_dir / "diff.patch").exists()
     assert (task_dir / "summary.md").read_text(encoding="utf-8").find("프로젝트: alpha") >= 0
     assert (task_dir / "stdout.log").read_text(encoding="utf-8").find("token***") >= 0
+    assert (project.project_root / "src" / "main.py").read_text(encoding="utf-8") == "print('from fake codex')\n"
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=project.project_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert current_branch == "main"
     assert _notifier.messages and _notifier.messages[-1][0] == task_id
 
 
@@ -159,6 +168,7 @@ def test_task_runner_honors_canceled_status_after_codex_run(tmp_path: Path) -> N
     assert meta["status"] == Status.CANCELED
     assert meta["notes"] == "사용자 취소"
     assert (task_dir / "summary.md").read_text(encoding="utf-8").find("사용자 취소") >= 0
+    assert (project.project_root / "src" / "main.py").read_text(encoding="utf-8") != "print('canceled')\n"
 
 
 @pytest.mark.integration

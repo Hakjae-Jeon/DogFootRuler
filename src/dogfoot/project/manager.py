@@ -75,6 +75,7 @@ class ProjectManager:
 
         (project_root / "config").mkdir(parents=True, exist_ok=True)
         (project_root / "runs").mkdir(parents=True, exist_ok=True)
+        (project_root / ".gitignore").write_text("runs/\n__pycache__/\n", encoding="utf-8")
         (project_root / "README.md").write_text(f"# {name}\n", encoding="utf-8")
 
         if template == "python":
