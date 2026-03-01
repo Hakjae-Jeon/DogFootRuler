@@ -9,24 +9,76 @@ from datetime import datetime, timezone
 from pathlib import Path
 from random import SystemRandom
 from threading import Lock
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, List, Match, Tuple
 from zipfile import ZipFile
 
-from telegram import Update
+from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAIN_BRANCH = "main"
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
-RUNS_DIR = Path("runs")
+RUNS_DIR = REPO_ROOT / "runs"
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 CODEX_TIMEOUT = 180
 LOG_ARCHIVE_NAME = "artifacts.zip"
-TOKEN_PATTERN = re.compile(r"(?i)((token|key|secret)\s*[:=]\s*)([\w-]+)")
+
+class Status:
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    READY_TO_APPLY = "READY_TO_APPLY"
+    APPLIED = "APPLIED"
+    COMMITTED = "COMMITTED"
+    MERGED = "MERGED"
+    FAILED = "FAILED"
+    CANCELED = "CANCELED"
+    ALL = {
+        QUEUED,
+        RUNNING,
+        READY_TO_APPLY,
+        APPLIED,
+        COMMITTED,
+        MERGED,
+        FAILED,
+        CANCELED,
+    }
+
+STATUS_ALIASES: Dict[str, str] = {"DONE": Status.READY_TO_APPLY}
+
+MaskRule = Tuple[re.Pattern[str], Callable[[Match[str]], str]]
+MASK_RULES: List[MaskRule] = [
+    (
+        re.compile(r"(?i)(token|key|secret)\s*[:=]\s*([^\s,;]+)"),
+        lambda m: f"{m.group(1)}***",
+    ),
+    (
+        re.compile(r"(?i)Bearer\s+[A-Za-z0-9\-_.=]+"),
+        lambda _: "Bearer ***",
+    ),
+    (
+        re.compile(r"sk-[A-Za-z0-9]{32,}", re.IGNORECASE),
+        lambda _: "sk-***",
+    ),
+    (
+        re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(?:\"[^\"]*\"|'[^']*'|[^\s]+)"),
+        lambda m: f"{m.group(1)}=***",
+    ),
+]
+
+telegram_bot_client: Bot | None = None
+
 codex_processes: Dict[str, subprocess.Popen] = {}
 codex_lock = Lock()
 logger = logging.getLogger(__name__)
+
+
+def canonical_status(raw: Any) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    key = raw.strip().upper()
+    normalized = STATUS_ALIASES.get(key, key)
+    return normalized if normalized in Status.ALL else None
 
 
 def run_git_command(args: list[str]) -> subprocess.CompletedProcess:
@@ -44,7 +96,13 @@ def load_task_meta(task_id: str) -> Dict[str, Any]:
         return {}
     try:
         with meta_path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+            meta = json.load(fh)
+        status = canonical_status(meta.get("status"))
+        if status:
+            meta["status"] = status
+        else:
+            meta.setdefault("status", Status.READY_TO_APPLY)
+        return meta
     except json.JSONDecodeError:
         return {}
 
@@ -63,7 +121,10 @@ def generate_git_diff(branch: str) -> str:
 
 
 def mask_sensitive(text: str) -> str:
-    return TOKEN_PATTERN.sub(lambda m: f"{m.group(1)}***", text)
+    masked = text
+    for pattern, handler in MASK_RULES:
+        masked = pattern.sub(handler, masked)
+    return masked
 
 
 def create_artifacts_zip(task_id: str) -> Path:
@@ -100,6 +161,34 @@ def apply_diff_file(diff_path: Path) -> subprocess.CompletedProcess:
 def workspace_is_clean() -> bool:
     status = run_git_command(["status", "--porcelain"])
     return not status.stdout.strip()
+
+
+def tidy_workspace() -> None:
+    reset_result = run_git_command(["reset", "--hard"])
+    if reset_result.returncode != 0:
+        logger.warning("reset --hard 실패: %s", reset_result.stderr.strip() or reset_result.stdout.strip())
+    clean_result = run_git_command(["clean", "-fd"])
+    if clean_result.returncode != 0:
+        logger.warning("git clean 실패: %s", clean_result.stderr.strip() or clean_result.stdout.strip())
+    ok, err = checkout_branch(MAIN_BRANCH)
+    if not ok:
+        logger.warning("main 체크아웃 실패: %s", err or "unknown")
+
+
+async def notify_task_completion(task_id: str, text: str) -> None:
+    if not telegram_bot_client:
+        return
+    meta = load_task_meta(task_id)
+    if not meta:
+        return
+    chat_id = meta.get("chat_id")
+    if not chat_id:
+        return
+    safe_text = text if len(text) <= 4000 else text[:3997] + "..."
+    try:
+        await telegram_bot_client.send_message(chat_id=chat_id, text=safe_text)
+    except Exception:
+        logger.exception("Task %s 완료 푸시 실패", task_id)
 
 
 def parse_scalar(raw: str) -> Any:
@@ -160,18 +249,12 @@ class TaskStore:
         for entry in sorted(self.runs_root.iterdir()):
             if not entry.is_dir():
                 continue
-            meta_path = entry / "meta.json"
-            if not meta_path.exists():
-                continue
-            try:
-                with meta_path.open("r", encoding="utf-8") as fh:
-                    meta = json.load(fh)
-            except json.JSONDecodeError:
-                logger.warning("이전 메타(%s)가 파싱 실패해서 건너뜁니다.", entry.name)
+            meta = load_task_meta(entry.name)
+            if not meta:
                 continue
             task_id = meta.get("task_id") or entry.name
             self.tasks[task_id] = meta
-            if meta.get("status") == "QUEUED":
+            if meta.get("status") == Status.QUEUED:
                 self.queue.put_nowait(task_id)
 
     def _meta_path(self, task_id: str) -> Path:
@@ -188,7 +271,7 @@ class TaskStore:
         suffix = "".join(SystemRandom().choice("0123456789abcdef") for _ in range(6))
         return f"{now:%Y%m%d-%H%M%S}-{suffix}"
 
-    def create_task(self, user_id: int, text: str) -> str:
+    def create_task(self, user_id: int, chat_id: int, text: str) -> str:
         task_id = self._new_task_id()
         task_dir = self.runs_root / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
@@ -196,8 +279,9 @@ class TaskStore:
         meta = {
             "task_id": task_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "status": "QUEUED",
+            "status": Status.QUEUED,
             "user_id": user_id,
+            "chat_id": chat_id,
             "request": text,
         }
         self.tasks[task_id] = meta
@@ -216,19 +300,26 @@ class TaskStore:
         return sum(1 for meta in self.tasks.values() if meta.get("status") == status)
 
     def status_summary(self) -> str:
-        queued = [tid for tid, meta in self.tasks.items() if meta.get("status") == "QUEUED"]
-        running = [tid for tid, meta in self.tasks.items() if meta.get("status") == "RUNNING"]
-        finished_states = {"READY_TO_APPLY", "APPLIED", "COMMITTED", "MERGED", "FAILED", "CANCELED"}
+        queued = [tid for tid, meta in self.tasks.items() if meta.get("status") == Status.QUEUED]
+        running = [tid for tid, meta in self.tasks.items() if meta.get("status") == Status.RUNNING]
+        finished_states = {
+            Status.READY_TO_APPLY,
+            Status.APPLIED,
+            Status.COMMITTED,
+            Status.MERGED,
+            Status.FAILED,
+            Status.CANCELED,
+        }
         done = [
             tid
             for tid, meta in self.tasks.items()
             if meta.get("status") in finished_states
         ]
-        ready = [tid for tid, meta in self.tasks.items() if meta.get("status") == "READY_TO_APPLY"]
-        applied = [tid for tid, meta in self.tasks.items() if meta.get("status") == "APPLIED"]
-        committed = [tid for tid, meta in self.tasks.items() if meta.get("status") == "COMMITTED"]
-        merged = [tid for tid, meta in self.tasks.items() if meta.get("status") == "MERGED"]
-        canceled = [tid for tid, meta in self.tasks.items() if meta.get("status") == "CANCELED"]
+        ready = [tid for tid, meta in self.tasks.items() if meta.get("status") == Status.READY_TO_APPLY]
+        applied = [tid for tid, meta in self.tasks.items() if meta.get("status") == Status.APPLIED]
+        committed = [tid for tid, meta in self.tasks.items() if meta.get("status") == Status.COMMITTED]
+        merged = [tid for tid, meta in self.tasks.items() if meta.get("status") == Status.MERGED]
+        canceled = [tid for tid, meta in self.tasks.items() if meta.get("status") == Status.CANCELED]
         lines = [
             f"RUNNING: {len(running)}",
             f"QUEUED: {len(queued)}",
@@ -328,20 +419,20 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"{task_id} 메타가 없습니다.")
         return
     status = meta.get("status")
-    if status == "QUEUED":
+    if status == Status.QUEUED:
         task_store.update_meta(
             task_id,
-            status="CANCELED",
+            status=Status.CANCELED,
             notes="사용자 취소(큐)",
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
         await update.message.reply_text(f"{task_id}을(를) 큐에서 취소했습니다.")
         return
-    if status == "RUNNING":
+    if status == Status.RUNNING:
         if cancel_running_task(task_id):
             task_store.update_meta(
                 task_id,
-                status="CANCELED",
+                status=Status.CANCELED,
                 notes="사용자 취소(실행 중)",
                 finished_at=datetime.now(timezone.utc).isoformat(),
             )
@@ -362,7 +453,7 @@ async def apply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"{task_id} 메타가 없습니다.")
         return
     status = meta.get("status")
-    if status != "READY_TO_APPLY":
+    if status != Status.READY_TO_APPLY:
         await update.message.reply_text(f"{task_id} 상태가 {status}라 적용할 수 없습니다.")
         return
     diff_path = RUNS_DIR / task_id / "diff.patch"
@@ -384,7 +475,7 @@ async def apply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     run_git_command(["add", "-A"])
     task_store.update_meta(
         task_id,
-        status="APPLIED",
+        status=Status.APPLIED,
         applied_at=datetime.now(timezone.utc).isoformat(),
         notes="diff 수동 적용 완료",
     )
@@ -405,10 +496,10 @@ async def commit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"{task_id} 메타가 없습니다.")
         return
     status = meta.get("status")
-    if status == "COMMITTED":
+    if status == Status.COMMITTED:
         await update.message.reply_text(f"{task_id}은 이미 커밋되었습니다.")
         return
-    if status != "APPLIED":
+    if status != Status.APPLIED:
         await update.message.reply_text(f"{task_id}이 아직 적용 상태가 아닙니다 (현재 {status}).")
         return
     branch = meta.get("branch") or ensure_task_branch(task_id)
@@ -423,7 +514,7 @@ async def commit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     commit_hash = run_git_command(["rev-parse", "HEAD"]).stdout.strip()
     task_store.update_meta(
         task_id,
-        status="COMMITTED",
+        status=Status.COMMITTED,
         commit_hash=commit_hash,
         commit_message=message,
         committed_at=datetime.now(timezone.utc).isoformat(),
@@ -442,10 +533,10 @@ async def merge_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"{task_id} 메타가 없습니다.")
         return
     status = meta.get("status")
-    if status == "MERGED":
+    if status == Status.MERGED:
         await update.message.reply_text(f"{task_id}은 이미 main에 병합되었습니다.")
         return
-    if status != "COMMITTED":
+    if status != Status.COMMITTED:
         await update.message.reply_text(f"{task_id}은 커밋되지 않았습니다 (현재 {status}).")
         return
     branch = meta.get("branch") or ensure_task_branch(task_id)
@@ -466,7 +557,7 @@ async def merge_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     merge_commit = run_git_command(["rev-parse", "HEAD"]).stdout.strip()
     task_store.update_meta(
         task_id,
-        status="MERGED",
+        status=Status.MERGED,
         merge_commit=merge_commit,
         merged_at=datetime.now(timezone.utc).isoformat(),
         notes="PR5 머지 완료",
@@ -480,7 +571,8 @@ async def natural_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if not text:
         await update.message.reply_text("작업 지시를 입력해주세요.")
         return
-    task_id = task_store.create_task(user_id, text)
+    chat_id = update.effective_chat.id if update.effective_chat else update.effective_user.id
+    task_id = task_store.create_task(user_id, chat_id, text)
     queue_size = task_store.queue.qsize()
     await update.message.reply_text(
         f"작업 {task_id}이(가) 예약되었습니다. 현재 대기 중: {queue_size}개. /status, /diff, /apply를 확인하세요."
@@ -548,51 +640,84 @@ async def process_task(task_id: str) -> None:
     request_text = request_path.read_text(encoding="utf-8").strip()
     started = datetime.now(timezone.utc).isoformat()
     branch = ensure_task_branch(task_id)
-    task_store.update_meta(task_id, branch=branch)
-    task_store.update_meta(task_id, status="RUNNING", started_at=started)
-    return_code, stdout_capture, stderr_capture, reason = _run_codex(task_id, request_text)
-    stdout_text = mask_sensitive(stdout_capture or _build_stdout_text(task_id, request_text))
-    stderr_text = mask_sensitive(stderr_capture or "")
-    (task_dir / "stdout.log").write_text(stdout_text, encoding="utf-8")
-    (task_dir / "stderr.log").write_text(stderr_text, encoding="utf-8")
-    stderr_sample = stderr_text.strip().splitlines()[:3]
-    stderr_excerpt = " | ".join(stderr_sample) if stderr_sample else "없음"
-    current_meta = load_task_meta(task_id)
-    if current_meta.get("status") == "CANCELED":
-        canceled_summary = mask_sensitive(
-            f"Task {task_id}이(가) 사용자 취소로 종료되었습니다 (reason={reason or 'cancelled'})."
-        )
-        (task_dir / "summary.md").write_text(canceled_summary, encoding="utf-8")
+    try:
+        if not workspace_is_clean():
+            note = "Codex 실행을 위한 작업 트리가 깨끗하지 않습니다."
+            task_store.update_meta(
+                task_id,
+                status=Status.FAILED,
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                notes=note,
+            )
+            await notify_task_completion(task_id, f"Task {task_id} 실패: {note}")
+            return
+
+        ok, checkout_err = checkout_branch(branch)
+        if not ok:
+            note = f"브랜치 체크아웃 실패: {checkout_err}"
+            task_store.update_meta(
+                task_id,
+                status=Status.FAILED,
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                notes=note,
+            )
+            await notify_task_completion(task_id, f"Task {task_id} 실패: {note}")
+            return
+
         task_store.update_meta(
             task_id,
-            finished_at=datetime.now(timezone.utc).isoformat(),
-            notes="사용자 취소",
+            branch=branch,
+            status=Status.RUNNING,
+            started_at=started,
         )
-        return
-    diff_text = generate_git_diff(branch)
-    diff_path = task_dir / "diff.patch"
-    diff_exists = bool(diff_text.strip())
-    if diff_exists:
-        diff_path.write_text(diff_text, encoding="utf-8")
-    elif diff_path.exists():
-        diff_path.unlink()
-    execution_note = reason or "정상"
-    summary_text = _build_summary_text(
-        task_id, request_text, return_code, stderr_excerpt, diff_exists, execution_note
-    )
-    masked_summary = mask_sensitive(summary_text)
-    (task_dir / "summary.md").write_text(masked_summary, encoding="utf-8")
-    task_store.update_meta(
-        task_id,
-        status="READY_TO_APPLY",
-        ready_at=datetime.now(timezone.utc).isoformat(),
-        return_code=return_code,
-        stderr_excerpt=stderr_excerpt,
-        diff_exists=diff_exists,
-        diff_path=str(diff_path) if diff_exists else None,
-        notes="PR3 Codex 실행 완료",
-        execution_note=execution_note,
-    )
+
+        return_code, stdout_capture, stderr_capture, reason = _run_codex(task_id, request_text)
+        stdout_text = mask_sensitive(stdout_capture or _build_stdout_text(task_id, request_text))
+        stderr_text = mask_sensitive(stderr_capture or "")
+        (task_dir / "stdout.log").write_text(stdout_text, encoding="utf-8")
+        (task_dir / "stderr.log").write_text(stderr_text, encoding="utf-8")
+        stderr_sample = stderr_text.strip().splitlines()[:3]
+        stderr_excerpt = " | ".join(stderr_sample) if stderr_sample else "없음"
+        current_meta = load_task_meta(task_id)
+        if current_meta.get("status") == Status.CANCELED:
+            canceled_summary = mask_sensitive(
+                f"Task {task_id}이(가) 사용자 취소로 종료되었습니다 (reason={reason or 'cancelled'})."
+            )
+            (task_dir / "summary.md").write_text(canceled_summary, encoding="utf-8")
+            task_store.update_meta(
+                task_id,
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                notes="사용자 취소",
+            )
+            await notify_task_completion(task_id, canceled_summary)
+            return
+        diff_text = generate_git_diff(branch)
+        diff_path = task_dir / "diff.patch"
+        diff_exists = bool(diff_text.strip())
+        if diff_exists:
+            diff_path.write_text(diff_text, encoding="utf-8")
+        elif diff_path.exists():
+            diff_path.unlink()
+        execution_note = reason or "정상"
+        summary_text = _build_summary_text(
+            task_id, request_text, return_code, stderr_excerpt, diff_exists, execution_note
+        )
+        masked_summary = mask_sensitive(summary_text)
+        (task_dir / "summary.md").write_text(masked_summary, encoding="utf-8")
+        task_store.update_meta(
+            task_id,
+            status=Status.READY_TO_APPLY,
+            ready_at=datetime.now(timezone.utc).isoformat(),
+            return_code=return_code,
+            stderr_excerpt=stderr_excerpt,
+            diff_exists=diff_exists,
+            diff_path=str(diff_path) if diff_exists else None,
+            notes="PR3 Codex 실행 완료",
+            execution_note=execution_note,
+        )
+        await notify_task_completion(task_id, masked_summary)
+    finally:
+        tidy_workspace()
 
 
 async def queue_worker() -> None:
@@ -612,7 +737,7 @@ async def queue_worker() -> None:
                 await process_task(task_id)
             except Exception:
                 logger.exception("작업 %s 처리 중 오류", task_id)
-                task_store.update_meta(task_id, status="FAILED", notes="큐 처리 중 예외")
+                task_store.update_meta(task_id, status=Status.FAILED, notes="큐 처리 중 예외")
             finally:
                 task_store.queue.task_done()
     except asyncio.CancelledError:
@@ -649,6 +774,8 @@ def main() -> None:
         .post_shutdown(stop_queue_worker)
         .build()
     )
+    global telegram_bot_client
+    telegram_bot_client = app.bot
     allowed_ids = set(allowed)
 
     def guard(handler):
