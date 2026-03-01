@@ -16,6 +16,8 @@ async def help_command(
         "/project_list",
         "/project_use <name>",
         "/project_create <name> [template]",
+        "/logs <task_id>",
+        "/commit <task_id> <message>",
         "자연어 작업 요청",
     ]
     if update.message:

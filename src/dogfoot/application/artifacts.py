@@ -71,7 +71,7 @@ def build_summary_text(
         f"프로젝트: {project_name}\n"
         f"원본 요청: {request}\n"
         f"적용 상태: 작업 트리에 즉시 반영됨 (/apply 불필요)\n"
-        f"다음 단계: /diff {task_id}, /logs {task_id}, /commit {task_id} <message>\n"
+        f"다음 단계: /logs {task_id}, /commit {task_id} <message>\n"
         f"Codex 명령: codex exec \"{request}\"\n"
         f"stderr 요약: {stderr_sample}\n"
         f"Diff 생성 여부: {'있음' if diff_exists else '없음'}\n"

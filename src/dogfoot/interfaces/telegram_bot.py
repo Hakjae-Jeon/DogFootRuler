@@ -24,7 +24,6 @@ from dogfoot.interfaces.telegram.task_handlers import (
     apply_command,
     cancel_command,
     commit_command,
-    diff_command,
     logs_command,
     merge_command,
     natural_text_handler,
@@ -233,7 +232,6 @@ def main() -> None:
     app.add_handler(CommandHandler("project_list", guard(_bind(project_list_command))))
     app.add_handler(CommandHandler("project_use", guard(_bind(project_use_command))))
     app.add_handler(CommandHandler("project_create", guard(_bind(project_create_command))))
-    app.add_handler(CommandHandler("diff", guard(_bind(diff_command))))
     app.add_handler(CommandHandler("logs", guard(_bind(logs_command))))
     app.add_handler(CommandHandler("cancel", guard(_bind(cancel_command))))
     app.add_handler(CommandHandler("apply", guard(_bind(apply_command))))

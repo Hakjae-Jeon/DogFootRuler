@@ -18,31 +18,6 @@ def _validated_changed_files(runtime: TelegramRuntime, meta: dict, task_id: str)
     return changed_files
 
 
-async def diff_command(
-    runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    if not context.args:
-        await update.message.reply_text("/diff <task_id> 형식으로 요청해주세요.")
-        return
-    task_id = context.args[0]
-    meta = runtime.task_store.load_task_meta(task_id)
-    if not meta:
-        await update.message.reply_text(f"{task_id} 메타가 없습니다.")
-        return
-    task_dir = runtime.task_store.resolve_task_dir(task_id)
-    if not task_dir:
-        await update.message.reply_text(f"{task_id} 디렉토리를 찾을 수 없습니다.")
-        return
-    diff_path = task_dir / "diff.patch"
-    branch = meta.get("branch") or f"dfr/task/{task_id}"
-    if not diff_path.exists() or diff_path.stat().st_size == 0:
-        await update.message.reply_text(f"{task_id}에 대한 diff가 생성되지 않았거나 변경 없음.")
-        return
-    await update.message.reply_text(f"{task_id} ({branch}) diff.patch 첨부합니다.")
-    with diff_path.open("rb") as fh:
-        await update.message.reply_document(document=fh, filename=f"{task_id}-diff.patch")
-
-
 async def logs_command(
     runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
