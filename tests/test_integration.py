@@ -19,6 +19,8 @@ def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
 
 
 def _init_git_repo(project_root: Path) -> None:
+    if (project_root / ".git").exists():
+        return
     _run(["git", "init", "-b", "main"], cwd=project_root)
     _run(["git", "config", "user.name", "DogFootRuler Test"], cwd=project_root)
     _run(["git", "config", "user.email", "dogfoot@example.com"], cwd=project_root)
@@ -33,6 +35,11 @@ def _commit_changed_file(project_root: Path, branch: str, relative_path: str, co
     target.write_text(content, encoding="utf-8")
     _run(["git", "add", relative_path], cwd=project_root)
     _run(["git", "commit", "-m", f"Update {relative_path}"], cwd=project_root)
+
+
+def _commit_all(project_root: Path, message: str) -> None:
+    _run(["git", "add", "-A"], cwd=project_root)
+    _run(["git", "commit", "-m", message], cwd=project_root)
 
 
 @pytest.mark.integration
@@ -65,6 +72,7 @@ def test_policy_violation_is_detected_from_branch_diff(tmp_path: Path) -> None:
         hard_deny_subpaths=manager.system_config.hard_deny_subpaths,
     )
     _init_git_repo(project.project_root)
+    _commit_all(project.project_root, "Update project policy")
 
     git_client = GitClient()
     branch = git_client.ensure_task_branch("task-002", project.project_root)

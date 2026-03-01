@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import subprocess
 
 from dogfoot.interfaces.cli import main
 from dogfoot.project.manager import ProjectManager
@@ -16,6 +17,14 @@ def test_cli_project_create_and_list(tmp_path: Path, capsys) -> None:
     assert exit_code == 0
     output = capsys.readouterr().out
     assert "created alpha" in output
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=tmp_path / "projects" / "alpha",
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert branch == "main"
 
     exit_code = main(["--system-config", str(system_config), "project", "list"])
     assert exit_code == 0

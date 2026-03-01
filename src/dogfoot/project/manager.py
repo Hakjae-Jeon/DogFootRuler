@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 from dogfoot.config.system import SystemConfig
@@ -43,6 +44,28 @@ class ProjectManager:
                 projects.append(entry.name)
         return projects
 
+    def _run_git(self, project_root: Path, args: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git"] + args,
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
+
+    def _initialize_git_repo(self, project_root: Path) -> None:
+        commands = [
+            ["init", "-b", "main"],
+            ["config", "user.name", "DogFootRuler"],
+            ["config", "user.email", "dogfootruler@local"],
+            ["add", "-A"],
+            ["commit", "-m", "Initial commit"],
+        ]
+        for args in commands:
+            result = self._run_git(project_root, args)
+            if result.returncode != 0:
+                detail = result.stderr.strip() or result.stdout.strip() or "unknown git error"
+                raise RuntimeError(f"Git initialization failed ({' '.join(args)}): {detail}")
+
     def create_project(self, name: str, template: str = "empty") -> Project:
         if template not in {"empty", "python", "node"}:
             raise ValueError(f"Unsupported template: {template}")
@@ -74,6 +97,7 @@ class ProjectManager:
             ),
             encoding="utf-8",
         )
+        self._initialize_git_repo(project_root)
         return self.get_project(name)
 
     def get_project(self, name: str) -> Project:

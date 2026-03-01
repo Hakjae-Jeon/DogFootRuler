@@ -21,11 +21,18 @@ def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
 
 
 def _init_git_repo(project_root: Path) -> None:
+    if (project_root / ".git").exists():
+        return
     _run(["git", "init", "-b", "main"], cwd=project_root)
     _run(["git", "config", "user.name", "DogFootRuler Test"], cwd=project_root)
     _run(["git", "config", "user.email", "dogfoot@example.com"], cwd=project_root)
     _run(["git", "add", "-A"], cwd=project_root)
     _run(["git", "commit", "-m", "Initial commit"], cwd=project_root)
+
+
+def _commit_all(project_root: Path, message: str) -> None:
+    _run(["git", "add", "-A"], cwd=project_root)
+    _run(["git", "commit", "-m", message], cwd=project_root)
 
 
 class FakeCodexRunner:
@@ -102,6 +109,7 @@ def test_task_runner_policy_violation_marks_failed(tmp_path: Path) -> None:
     project.save_config()
     project = _load_project(manager, project.project_root)
     _init_git_repo(project.project_root)
+    _commit_all(project.project_root, "Update project policy")
     store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
 
     def action(task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:

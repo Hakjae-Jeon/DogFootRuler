@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import subprocess
 
 from dogfoot.project.manager import ProjectManager
 
@@ -37,6 +38,15 @@ def test_create_project_and_select_active_project(tmp_path: Path) -> None:
     assert project.project_root == (tmp_path / "projects" / "alpha").resolve()
     assert (project.project_root / "config" / "project.yaml").exists()
     assert (project.project_root / "src" / "main.py").exists()
+    assert (project.project_root / ".git").is_dir()
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=project.project_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert branch == "main"
 
     manager.set_active_project("alpha")
     active = manager.get_active_project()
