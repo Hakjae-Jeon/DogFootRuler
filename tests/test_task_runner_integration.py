@@ -127,7 +127,9 @@ def test_task_runner_policy_violation_marks_failed(tmp_path: Path) -> None:
     assert meta["status"] == Status.FAILED
     assert meta["changed_files"] == ["README.md"]
     assert "Change is not allowed" in str(meta["notes"])
-    assert (task_dir / "summary.md").read_text(encoding="utf-8").find("정책 위반") >= 0
+    summary_text = (task_dir / "summary.md").read_text(encoding="utf-8")
+    assert "실패 원인" in summary_text
+    assert "Codex stdout 요약" in summary_text
 
 
 @pytest.mark.integration
@@ -167,7 +169,7 @@ def test_task_runner_marks_failed_when_no_changes_detected(tmp_path: Path) -> No
     store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
 
     def action(task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
-        return 0, "", "", ""
+        return 0, "변경할 파일을 찾지 못했습니다", "", ""
 
     runner = _make_runner(manager, store, FakeCodexRunner(action))
     _notifier.messages.clear()
@@ -176,5 +178,9 @@ def test_task_runner_marks_failed_when_no_changes_detected(tmp_path: Path) -> No
     asyncio.run(runner.process_task(task_id))
 
     meta = store.load_task_meta(task_id)
+    task_dir = store.resolve_task_dir(task_id)
     assert meta["status"] == Status.FAILED
     assert "No changed files were detected" in str(meta["notes"])
+    summary_text = (task_dir / "summary.md").read_text(encoding="utf-8")
+    assert "Codex stdout 요약" in summary_text
+    assert "변경할 파일을 찾지 못했습니다" in summary_text

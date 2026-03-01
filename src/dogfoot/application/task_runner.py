@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from dogfoot.application.artifacts import build_stdout_text, build_summary_text, mask_sensitive
+from dogfoot.application.artifacts import (
+    build_failure_summary_text,
+    build_stdout_text,
+    build_summary_text,
+    mask_sensitive,
+)
 from dogfoot.integrations.codex_runner import CodexRunner
 from dogfoot.integrations.git_client import GitClient
 from dogfoot.project.policy import PolicyViolation
@@ -76,6 +81,8 @@ class TaskRunner:
             stderr_text = mask_sensitive(stderr_capture or "")
             (task_dir / "stdout.log").write_text(stdout_text, encoding="utf-8")
             (task_dir / "stderr.log").write_text(stderr_text, encoding="utf-8")
+            stdout_sample = stdout_text.strip().splitlines()[:3]
+            stdout_excerpt = " | ".join(stdout_sample) if stdout_sample else "없음"
             stderr_sample = stderr_text.strip().splitlines()[:3]
             stderr_excerpt = " | ".join(stderr_sample) if stderr_sample else "없음"
             current_meta = self.task_store.load_task_meta(task_id)
@@ -100,11 +107,22 @@ class TaskRunner:
                 diff_path.write_text(diff_text, encoding="utf-8")
             elif diff_path.exists():
                 diff_path.unlink()
+            execution_note = reason or "정상"
             try:
                 changed_files = project.policy.normalize_change_paths(changed_files)
                 project.assert_changes_allowed(changed_files)
             except PolicyViolation as exc:
-                failure_summary = mask_sensitive(f"Task {task_id} 정책 위반: {exc}")
+                failure_summary = mask_sensitive(
+                    build_failure_summary_text(
+                        task_id=task_id,
+                        project_name=project.name,
+                        request=request_text,
+                        failure_reason=str(exc),
+                        stdout_sample=stdout_excerpt,
+                        stderr_sample=stderr_excerpt,
+                        execution_note=execution_note,
+                    )
+                )
                 (task_dir / "summary.md").write_text(failure_summary, encoding="utf-8")
                 self.task_store.update_meta(
                     task_id,
@@ -112,11 +130,13 @@ class TaskRunner:
                     finished_at=datetime.now(timezone.utc).isoformat(),
                     changed_files=changed_files,
                     notes=str(exc),
+                    stdout_excerpt=stdout_excerpt,
+                    stderr_excerpt=stderr_excerpt,
+                    execution_note=execution_note,
                 )
                 await self.notifier(task_id, failure_summary)
                 return
 
-            execution_note = reason or "정상"
             summary_text = build_summary_text(
                 task_id,
                 project.name,

@@ -76,3 +76,24 @@ def build_summary_text(
         f"Diff 생성 여부: {'있음' if diff_exists else '없음'}\n"
         f"실행 노트: {execution_note}\n"
     )
+
+
+def build_failure_summary_text(
+    task_id: str,
+    project_name: str,
+    request: str,
+    failure_reason: str,
+    stdout_sample: str,
+    stderr_sample: str,
+    execution_note: str,
+) -> str:
+    return (
+        f"Task {task_id} 처리 결과: 실패\n"
+        f"프로젝트: {project_name}\n"
+        f"원본 요청: {request}\n"
+        f"실패 원인: {failure_reason}\n"
+        f"Codex stdout 요약: {stdout_sample}\n"
+        f"Codex stderr 요약: {stderr_sample}\n"
+        f"다음 단계: /logs {task_id} 로 상세 로그 확인\n"
+        f"실행 노트: {execution_note}\n"
+    )

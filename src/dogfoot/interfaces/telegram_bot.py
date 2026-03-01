@@ -43,6 +43,7 @@ CODEX_TIMEOUT = 180
 telegram_bot_client: Bot | None = None
 runtime: TelegramRuntime | None = None
 logger = logging.getLogger(__name__)
+TELEGRAM_TEXT_LIMIT = 4000
 
 
 def require_runtime() -> TelegramRuntime:
@@ -76,19 +77,63 @@ def load_configuration() -> dict[str, object]:
     }
 
 
+def _split_for_telegram(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str]:
+    stripped = text.strip()
+    if not stripped:
+        return []
+    chunks: list[str] = []
+    remaining = stripped
+    while len(remaining) > limit:
+        split_at = remaining.rfind("\n", 0, limit)
+        if split_at <= 0:
+            split_at = limit
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].lstrip("\n")
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
 async def notify_task_completion(task_id: str, text: str) -> None:
     current_runtime = require_runtime()
     if not current_runtime.bot:
         return
-    meta = current_runtime.task_store.load_task_meta(task_id)
+    store = current_runtime.task_store
+    meta = store.load_task_meta(task_id)
     if not meta:
         return
     chat_id = meta.get("chat_id")
     if not chat_id:
         return
-    safe_text = text if len(text) <= 4000 else text[:3997] + "..."
+    task_dir = store.resolve_task_dir(task_id)
     try:
-        await current_runtime.bot.send_message(chat_id=chat_id, text=safe_text)
+        for chunk in _split_for_telegram(text):
+            await current_runtime.bot.send_message(chat_id=chat_id, text=chunk)
+        if task_dir:
+            stdout_path = task_dir / "stdout.log"
+            if stdout_path.exists():
+                stdout_text = stdout_path.read_text(encoding="utf-8").strip()
+                if stdout_text:
+                    for index, chunk in enumerate(
+                        _split_for_telegram(f"Codex output:\n{stdout_text}")
+                    ):
+                        prefix = f"[{index + 1}] " if index > 0 else ""
+                        await current_runtime.bot.send_message(
+                            chat_id=chat_id,
+                            text=f"{prefix}{chunk}",
+                        )
+            stderr_path = task_dir / "stderr.log"
+            if stderr_path.exists():
+                stderr_text = stderr_path.read_text(encoding="utf-8").strip()
+                if stderr_text:
+                    for index, chunk in enumerate(
+                        _split_for_telegram(f"Codex stderr:\n{stderr_text}")
+                    ):
+                        prefix = f"[{index + 1}] " if index > 0 else ""
+                        await current_runtime.bot.send_message(
+                            chat_id=chat_id,
+                            text=f"{prefix}{chunk}",
+                        )
     except Exception:
         logger.exception("Task %s 완료 푸시 실패", task_id)
 

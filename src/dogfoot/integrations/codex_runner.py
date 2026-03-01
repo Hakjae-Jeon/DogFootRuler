@@ -6,8 +6,9 @@ from threading import Lock
 
 
 class CodexRunner:
-    def __init__(self, timeout: int = 180) -> None:
+    def __init__(self, timeout: int = 180, sandbox_mode: str = "workspace-write") -> None:
         self.timeout = timeout
+        self.sandbox_mode = sandbox_mode
         self._processes: dict[str, subprocess.Popen] = {}
         self._lock = Lock()
 
@@ -21,7 +22,7 @@ class CodexRunner:
 
     def run(self, task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
         process = subprocess.Popen(
-            ["codex", "exec", prompt],
+            ["codex", "exec", "--sandbox", self.sandbox_mode, prompt],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
