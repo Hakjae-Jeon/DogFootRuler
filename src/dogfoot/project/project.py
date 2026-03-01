@@ -66,11 +66,14 @@ class Project:
             raise FileNotFoundError(f"Project root does not exist: {self.project_root}")
         if not self.config_path.exists():
             raise FileNotFoundError(f"Project config does not exist: {self.config_path}")
-        if self.get_runs_dir().exists() and not self.get_runs_dir().is_dir():
-            raise NotADirectoryError(f"Runs path is not a directory: {self.get_runs_dir()}")
+        runs_dir = self.project_root / "runs"
+        if runs_dir.exists() and not runs_dir.is_dir():
+            raise NotADirectoryError(f"Runs path is not a directory: {runs_dir}")
 
     def get_runs_dir(self) -> Path:
         runs_dir = self.project_root / "runs"
+        if runs_dir.exists() and not runs_dir.is_dir():
+            raise NotADirectoryError(f"Runs path is not a directory: {runs_dir}")
         runs_dir.mkdir(parents=True, exist_ok=True)
         return runs_dir
 

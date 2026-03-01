@@ -7,6 +7,7 @@ from pathlib import Path
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
+from dogfoot.application.startup import validate_manager_startup, validate_system_config_path
 from dogfoot.application.task_runner import TaskRunner
 from dogfoot.config.system import SystemConfig
 from dogfoot.integrations.codex_runner import CodexRunner
@@ -132,11 +133,13 @@ def main() -> None:
     allowed = config.get("allowed_user_ids") or []
     if not token:
         raise SystemExit("telegram token이 없습니다. config/telegram.yaml을 확인하세요.")
-    system_config_path = Path(str(config["system_config_path"]))
-    if not system_config_path.exists():
-        raise SystemExit("system.yaml이 없습니다. config/system.yaml을 확인하세요.")
+    try:
+        system_config_path = validate_system_config_path(Path(str(config["system_config_path"])))
+        project_manager = ProjectManager.load(system_config_path)
+        validate_manager_startup(project_manager, require_active_project=False)
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+        raise SystemExit(str(exc))
 
-    project_manager = ProjectManager.load(system_config_path)
     task_store = TaskStore(project_manager, LEGACY_RUNS_DIR)
     git_client = GitClient()
     codex_runner = CodexRunner(timeout=CODEX_TIMEOUT)

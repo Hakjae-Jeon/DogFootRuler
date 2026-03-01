@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Sequence
 
+from dogfoot.application.startup import validate_manager_startup, validate_system_config_path
 from dogfoot.project.manager import ProjectManager
 
 
@@ -48,11 +49,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    system_config_path = resolve_system_config(args.system_config)
-    if not system_config_path.exists():
-        parser.error(f"system config not found: {system_config_path}")
-
-    manager = ProjectManager.load(system_config_path)
+    try:
+        system_config_path = validate_system_config_path(resolve_system_config(args.system_config))
+        manager = ProjectManager.load(system_config_path)
+        validate_manager_startup(manager, require_active_project=False)
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+        parser.error(str(exc))
 
     if args.domain == "project" and args.command == "create":
         project = manager.create_project(args.name, template=args.template)
@@ -61,6 +63,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.domain == "project" and args.command == "use":
         manager.set_active_project(args.name)
+        validate_manager_startup(manager, require_active_project=True)
         print(f"active project set to {args.name}")
         return 0
 

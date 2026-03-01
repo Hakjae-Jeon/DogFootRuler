@@ -13,7 +13,10 @@ PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 class ProjectManager:
     def __init__(self, system_config: SystemConfig) -> None:
         self.system_config = system_config
-        self.system_config.project_base_root.mkdir(parents=True, exist_ok=True)
+        base_root = self.system_config.project_base_root
+        if base_root.exists() and not base_root.is_dir():
+            raise NotADirectoryError(f"project_base_root is not a directory: {base_root}")
+        base_root.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def load(cls, system_config_path: Path) -> "ProjectManager":
