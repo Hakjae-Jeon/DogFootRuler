@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from zipfile import ZipFile
 from pathlib import Path
 
 import pytest
@@ -100,3 +101,34 @@ def test_task_store_creates_project_scoped_run_archive(tmp_path: Path) -> None:
     assert meta["project_name"] == "alpha"
     assert meta["project_root"] == str(project.project_root)
     assert meta["status"] == Status.QUEUED
+
+
+@pytest.mark.integration
+def test_task_store_masks_request_and_logs_archive_masks_request(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    project = manager.create_project("alpha", template="python")
+    store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
+
+    task_id = store.create_task(
+        user_id=1,
+        chat_id=2,
+        text="OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456 secret=abc123",
+        project=project,
+    )
+    task_dir = store.resolve_task_dir(task_id)
+    meta = store.load_task_meta(task_id)
+
+    request_text = (task_dir / "request.txt").read_text(encoding="utf-8")
+    assert "sk-" not in request_text
+    assert "OPENAI_API_KEY" in request_text
+    assert "***" in request_text
+    assert meta["request"] == request_text
+
+    from dogfoot.application.artifacts import create_artifacts_zip
+
+    zip_path = create_artifacts_zip(task_dir)
+    with ZipFile(zip_path, "r") as archive:
+        archived_request = archive.read("request.txt").decode("utf-8")
+    assert "sk-" not in archived_request
+    assert "OPENAI_API_KEY" in archived_request
+    assert "***" in archived_request

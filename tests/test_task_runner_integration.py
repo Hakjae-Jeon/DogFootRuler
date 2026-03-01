@@ -186,3 +186,56 @@ def test_task_runner_marks_failed_when_no_changes_detected(tmp_path: Path) -> No
     summary_text = (task_dir / "summary.md").read_text(encoding="utf-8")
     assert "Codex stdout 요약" in summary_text
     assert "변경할 파일을 찾지 못했습니다" in summary_text
+
+
+@pytest.mark.integration
+def test_task_runner_marks_failed_when_codex_returns_nonzero(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    project = manager.create_project("alpha", template="python")
+    _init_git_repo(project.project_root)
+    store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
+
+    def action(task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
+        (project_root / "src" / "main.py").write_text("print('partial change')\n", encoding="utf-8")
+        return 2, "partial output", "error happened", ""
+
+    runner = _make_runner(manager, store, FakeCodexRunner(action))
+    _notifier.messages.clear()
+    task_id = store.create_task(user_id=1, chat_id=2, text="broken change", project=project)
+
+    asyncio.run(runner.process_task(task_id))
+
+    meta = store.load_task_meta(task_id)
+    task_dir = store.resolve_task_dir(task_id)
+    assert meta["status"] == Status.FAILED
+    assert meta["return_code"] == 2
+    assert meta["changed_files"] == ["src/main.py"]
+    assert "Codex exited with code 2" in str(meta["notes"])
+    assert (task_dir / "diff.patch").exists()
+
+
+@pytest.mark.integration
+def test_task_store_marks_running_tasks_failed_on_restart(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    project = manager.create_project("alpha", template="python")
+    task_dir = project.project_root / "runs" / "task-001"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "meta.json").write_text(
+        """
+{
+  "task_id": "task-001",
+  "status": "RUNNING",
+  "project_name": "alpha",
+  "project_root": "%s",
+  "task_dir": "%s"
+}
+"""
+        % (project.project_root, task_dir),
+        encoding="utf-8",
+    )
+
+    store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
+    meta = store.load_task_meta("task-001")
+
+    assert meta["status"] == Status.FAILED
+    assert "프로세스 재시작" in str(meta["notes"])

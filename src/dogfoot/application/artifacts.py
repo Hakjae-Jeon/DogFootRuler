@@ -22,7 +22,7 @@ MASK_RULES: list[MaskRule] = [
         lambda _: "sk-***",
     ),
     (
-        re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(?:\"[^\"]*\"|'[^']*'|[^\s]+)"),
+        re.compile(r"(?i)\b([A-Za-z_][A-Za-z0-9_]*(?:token|key|secret|password)[A-Za-z0-9_]*)=(?:\"[^\"]*\"|'[^']*'|[^\s]+)"),
         lambda m: f"{m.group(1)}=***",
     ),
 ]
@@ -44,7 +44,10 @@ def create_artifacts_zip(task_dir: Path) -> Path:
         for name in files_to_zip:
             source = task_dir / name
             if source.exists():
-                archive.write(source, arcname=name)
+                if name == "request.txt":
+                    archive.writestr(name, mask_sensitive(source.read_text(encoding="utf-8")))
+                else:
+                    archive.write(source, arcname=name)
     return zip_path
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from random import SystemRandom
 from typing import Any
 
+from dogfoot.application.artifacts import mask_sensitive
 from dogfoot.project.manager import ProjectManager
 from dogfoot.project.project import Project
 from dogfoot.tasks.models import Status, canonical_status
@@ -72,8 +73,14 @@ class TaskStore:
             if not meta:
                 continue
             task_id = meta.get("task_id") or entry.name
+            if meta.get("status") == Status.RUNNING:
+                meta["status"] = Status.FAILED
+                meta["notes"] = "프로세스 재시작으로 RUNNING task를 실패 처리함"
+                meta["finished_at"] = datetime.now(timezone.utc).isoformat()
             meta.setdefault("task_dir", str(entry))
             self.tasks[task_id] = meta
+            if meta.get("status") == Status.FAILED:
+                self._persist_meta(task_id)
             if meta.get("status") == Status.QUEUED:
                 self.queue.put_nowait(task_id)
 
@@ -104,14 +111,15 @@ class TaskStore:
         task_id = self._new_task_id()
         task_dir = project.get_runs_dir() / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
-        (task_dir / "request.txt").write_text(text, encoding="utf-8")
+        sanitized_text = mask_sensitive(text)
+        (task_dir / "request.txt").write_text(sanitized_text, encoding="utf-8")
         meta = {
             "task_id": task_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "status": Status.QUEUED,
             "user_id": user_id,
             "chat_id": chat_id,
-            "request": text,
+            "request": sanitized_text,
             "project_name": project.name,
             "project_root": str(project.project_root),
             "task_dir": str(task_dir),

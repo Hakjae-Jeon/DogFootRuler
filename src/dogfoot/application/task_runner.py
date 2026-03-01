@@ -47,99 +47,128 @@ class TaskRunner:
         project = self.project_loader(meta)
         request_text = (task_dir / "request.txt").read_text(encoding="utf-8").strip()
         started = datetime.now(timezone.utc).isoformat()
-        try:
-            self.task_store.update_meta(task_id, status=Status.RUNNING, started_at=started)
+        self.task_store.update_meta(task_id, status=Status.RUNNING, started_at=started)
 
-            return_code, stdout_capture, stderr_capture, reason = self.codex_runner.run(
-                task_id, request_text, project.project_root
+        return_code, stdout_capture, stderr_capture, reason = self.codex_runner.run(
+            task_id, request_text, project.project_root
+        )
+        stdout_text = mask_sensitive(stdout_capture or build_stdout_text(task_id, request_text))
+        stderr_text = mask_sensitive(stderr_capture or "")
+        (task_dir / "stdout.log").write_text(stdout_text, encoding="utf-8")
+        (task_dir / "stderr.log").write_text(stderr_text, encoding="utf-8")
+        stdout_sample = stdout_text.strip().splitlines()[:3]
+        stdout_excerpt = " | ".join(stdout_sample) if stdout_sample else "없음"
+        stderr_sample = stderr_text.strip().splitlines()[:3]
+        stderr_excerpt = " | ".join(stderr_sample) if stderr_sample else "없음"
+        current_meta = self.task_store.load_task_meta(task_id)
+        if current_meta.get("status") == Status.CANCELED:
+            canceled_summary = mask_sensitive(
+                f"Task {task_id}이(가) 사용자 취소로 종료되었습니다 (reason={reason or 'cancelled'})."
             )
-            stdout_text = mask_sensitive(stdout_capture or build_stdout_text(task_id, request_text))
-            stderr_text = mask_sensitive(stderr_capture or "")
-            (task_dir / "stdout.log").write_text(stdout_text, encoding="utf-8")
-            (task_dir / "stderr.log").write_text(stderr_text, encoding="utf-8")
-            stdout_sample = stdout_text.strip().splitlines()[:3]
-            stdout_excerpt = " | ".join(stdout_sample) if stdout_sample else "없음"
-            stderr_sample = stderr_text.strip().splitlines()[:3]
-            stderr_excerpt = " | ".join(stderr_sample) if stderr_sample else "없음"
-            current_meta = self.task_store.load_task_meta(task_id)
-            if current_meta.get("status") == Status.CANCELED:
-                canceled_summary = mask_sensitive(
-                    f"Task {task_id}이(가) 사용자 취소로 종료되었습니다 (reason={reason or 'cancelled'})."
-                )
-                (task_dir / "summary.md").write_text(canceled_summary, encoding="utf-8")
-                self.task_store.update_meta(
-                    task_id,
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    notes="사용자 취소",
-                )
-                await self.notifier(task_id, canceled_summary)
-                return
-
-            diff_text = self.git_client.generate_diff("", project.project_root)
-            changed_files = self.git_client.changed_files("", project.project_root)
-            diff_path = task_dir / "diff.patch"
-            diff_exists = bool(diff_text.strip())
-            if diff_exists:
-                diff_path.write_text(diff_text, encoding="utf-8")
-            elif diff_path.exists():
-                diff_path.unlink()
-            execution_note = reason or "정상"
-            try:
-                changed_files = project.policy.normalize_change_paths(changed_files)
-                project.assert_changes_allowed(changed_files)
-            except PolicyViolation as exc:
-                failure_summary = mask_sensitive(
-                    build_failure_summary_text(
-                        task_id=task_id,
-                        project_name=project.name,
-                        request=request_text,
-                        failure_reason=str(exc),
-                        stdout_sample=stdout_excerpt,
-                        stderr_sample=stderr_excerpt,
-                        execution_note=execution_note,
-                    )
-                )
-                (task_dir / "summary.md").write_text(failure_summary, encoding="utf-8")
-                self.task_store.update_meta(
-                    task_id,
-                    status=Status.FAILED,
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    changed_files=changed_files,
-                    notes=str(exc),
-                    stdout_excerpt=stdout_excerpt,
-                    stderr_excerpt=stderr_excerpt,
-                    execution_note=execution_note,
-                )
-                await self.notifier(task_id, failure_summary)
-                return
-
-            summary_text = build_summary_text(
-                task_id,
-                project.name,
-                request_text,
-                return_code,
-                stderr_excerpt,
-                diff_exists,
-                execution_note,
-            )
-            masked_summary = mask_sensitive(summary_text)
-            (task_dir / "summary.md").write_text(masked_summary, encoding="utf-8")
+            (task_dir / "summary.md").write_text(canceled_summary, encoding="utf-8")
             self.task_store.update_meta(
                 task_id,
-                status=Status.APPLIED,
-                ready_at=datetime.now(timezone.utc).isoformat(),
-                applied_at=datetime.now(timezone.utc).isoformat(),
-                return_code=return_code,
-                stderr_excerpt=stderr_excerpt,
-                diff_exists=diff_exists,
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                notes="사용자 취소",
+            )
+            await self.notifier(task_id, canceled_summary)
+            return
+
+        diff_text = self.git_client.generate_diff("", project.project_root)
+        changed_files = self.git_client.changed_files("", project.project_root)
+        diff_path = task_dir / "diff.patch"
+        diff_exists = bool(diff_text.strip())
+        if diff_exists:
+            diff_path.write_text(diff_text, encoding="utf-8")
+        elif diff_path.exists():
+            diff_path.unlink()
+        execution_note = reason or "정상"
+        try:
+            changed_files = project.policy.normalize_change_paths(changed_files)
+            project.assert_changes_allowed(changed_files)
+        except PolicyViolation as exc:
+            failure_summary = mask_sensitive(
+                build_failure_summary_text(
+                    task_id=task_id,
+                    project_name=project.name,
+                    request=request_text,
+                    failure_reason=str(exc),
+                    stdout_sample=stdout_excerpt,
+                    stderr_sample=stderr_excerpt,
+                    execution_note=execution_note,
+                )
+            )
+            (task_dir / "summary.md").write_text(failure_summary, encoding="utf-8")
+            self.task_store.update_meta(
+                task_id,
+                status=Status.FAILED,
+                finished_at=datetime.now(timezone.utc).isoformat(),
                 changed_files=changed_files,
-                diff_path=str(diff_path) if diff_exists else None,
-                notes="Codex 변경을 현재 작업 트리에 직접 반영 완료",
+                notes=str(exc),
+                stdout_excerpt=stdout_excerpt,
+                stderr_excerpt=stderr_excerpt,
                 execution_note=execution_note,
             )
-            await self.notifier(task_id, masked_summary)
-        finally:
-            pass
+            await self.notifier(task_id, failure_summary)
+            return
+
+        if return_code != 0 or reason in {"timeout", "error"}:
+            failure_reason = f"Codex exited with code {return_code}"
+            if reason and reason != "정상":
+                failure_reason += f" ({reason})"
+            failure_summary = mask_sensitive(
+                build_failure_summary_text(
+                    task_id=task_id,
+                    project_name=project.name,
+                    request=request_text,
+                    failure_reason=failure_reason,
+                    stdout_sample=stdout_excerpt,
+                    stderr_sample=stderr_excerpt,
+                    execution_note=execution_note,
+                )
+            )
+            (task_dir / "summary.md").write_text(failure_summary, encoding="utf-8")
+            self.task_store.update_meta(
+                task_id,
+                status=Status.FAILED,
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                return_code=return_code,
+                changed_files=changed_files,
+                diff_exists=diff_exists,
+                diff_path=str(diff_path) if diff_exists else None,
+                notes=failure_reason,
+                stdout_excerpt=stdout_excerpt,
+                stderr_excerpt=stderr_excerpt,
+                execution_note=execution_note,
+            )
+            await self.notifier(task_id, failure_summary)
+            return
+
+        summary_text = build_summary_text(
+            task_id,
+            project.name,
+            request_text,
+            return_code,
+            stderr_excerpt,
+            diff_exists,
+            execution_note,
+        )
+        masked_summary = mask_sensitive(summary_text)
+        (task_dir / "summary.md").write_text(masked_summary, encoding="utf-8")
+        self.task_store.update_meta(
+            task_id,
+            status=Status.APPLIED,
+            ready_at=datetime.now(timezone.utc).isoformat(),
+            applied_at=datetime.now(timezone.utc).isoformat(),
+            return_code=return_code,
+            stderr_excerpt=stderr_excerpt,
+            diff_exists=diff_exists,
+            changed_files=changed_files,
+            diff_path=str(diff_path) if diff_exists else None,
+            notes="Codex 변경을 현재 작업 트리에 직접 반영 완료",
+            execution_note=execution_note,
+        )
+        await self.notifier(task_id, masked_summary)
 
     async def queue_worker(self) -> None:
         try:
