@@ -1,4 +1,6 @@
 config/telegram.yaml
 config/allowed_users.yaml
+config/system.yaml
 .venv/
 runs/
+__pycache__/

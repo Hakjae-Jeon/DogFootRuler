@@ -1,0 +1,8 @@
+project_base_root: /home/yulurala/work/02_Tools/DogFootRuler/projects
+active_project:
+system_forbidden_subpaths:
+  - runs
+hard_deny_subpaths:
+  - .git
+  - secrets
+  - .env

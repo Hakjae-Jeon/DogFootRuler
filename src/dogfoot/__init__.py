@@ -1,0 +1,1 @@
+"""DogFootRuler core package."""
