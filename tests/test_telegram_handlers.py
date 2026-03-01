@@ -215,6 +215,11 @@ def test_natural_text_handler_uses_resume_session_when_available() -> None:
 
     assert captured["kwargs"]["session_mode"] == "resume"
     assert captured["kwargs"]["session_id"] == "session-1"
+    update.message.reply_text.assert_awaited_once()
+    reply = update.message.reply_text.await_args.args[0]
+    assert "queued: task-1" in reply
+    assert "session_mode: resume" in reply
+    assert "/logs task-1" in reply
 
 
 @pytest.mark.integration
@@ -238,6 +243,10 @@ def test_new_command_forces_new_session() -> None:
 
     assert captured["kwargs"]["session_mode"] == "new"
     assert captured["kwargs"]["session_id"] is None
+    update.message.reply_text.assert_awaited_once()
+    reply = update.message.reply_text.await_args.args[0]
+    assert "queued: task-2" in reply
+    assert "session_mode: new" in reply
 
 
 @pytest.mark.integration

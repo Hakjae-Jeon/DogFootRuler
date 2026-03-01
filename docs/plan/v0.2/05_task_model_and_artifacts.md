@@ -14,8 +14,8 @@
   - `COMMITTED`
 
 ## runs 디렉토리 구조
-runs/
-  <project_name>/
+<project_root>/
+  runs/
     <task_id>/
       request.txt
       meta.json
@@ -41,3 +41,11 @@ runs/
 - 짧은 실행 결과 요약
 - 무엇을 했는지 / 실패 원인 / 후속 액션
 - `project_name`, `session_mode`, `status` 명시 권장
+
+## artifacts.zip 포함 파일
+- `request.txt`
+- `meta.json`
+- `stdout.log`
+- `stderr.log`
+- `summary.md`
+- `diff.patch` (존재 시)

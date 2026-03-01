@@ -169,6 +169,7 @@ class TaskRunner:
             status=Status.APPLIED,
             ready_at=datetime.now(timezone.utc).isoformat(),
             applied_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
             return_code=return_code,
             stderr_excerpt=stderr_excerpt,
             diff_exists=diff_exists,

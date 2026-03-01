@@ -39,7 +39,7 @@ def mask_sensitive(text: str) -> str:
 
 def create_artifacts_zip(task_dir: Path) -> Path:
     zip_path = task_dir / LOG_ARCHIVE_NAME
-    files_to_zip = ["request.txt", "stdout.log", "stderr.log", "summary.md", "diff.patch"]
+    files_to_zip = ["request.txt", "meta.json", "stdout.log", "stderr.log", "summary.md", "diff.patch"]
     with ZipFile(zip_path, "w") as archive:
         for name in files_to_zip:
             source = task_dir / name

@@ -36,6 +36,9 @@
 ### /project_use <name>
 - active project 설정
 
+### /project_create <name> [template]
+- 템플릿 기반 프로젝트 생성
+
 ### /project_clone <name> <repo_url> [branch]
 - git clone 기반 프로젝트 생성
 
@@ -53,11 +56,12 @@
 ### /new <prompt>
 - new session으로 자연어 작업 실행
 - 결과 메타에 `session_mode=new`
+- 작업 생성 직후 `task_id`와 `/logs` 안내를 응답
 
-## 제외 명령
+## 호환 안내 명령
 - `/diff` 없음
-- `/apply` 없음
-- task branch 기반 `/merge` 없음
+- `/apply` 는 등록되어 있지만 자동 반영 모드 안내만 출력
+- `/merge` 는 등록되어 있지만 자동 반영 모드 안내만 출력
 
 ## 자연어 예시
 - `이 레포 구조 요약해줘`

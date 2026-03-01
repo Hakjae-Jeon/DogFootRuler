@@ -209,3 +209,9 @@ async def _enqueue_prompt(
         session_mode=session_mode,
         session_id=previous_session_id,
     )
+    await update.message.reply_text(
+        f"queued: {task_id}\n"
+        f"project: {active_project.name}\n"
+        f"session_mode: {session_mode}\n"
+        f"다음 단계: /status, /logs {task_id}"
+    )

@@ -129,6 +129,8 @@ def test_task_store_masks_request_and_logs_archive_masks_request(tmp_path: Path)
     zip_path = create_artifacts_zip(task_dir)
     with ZipFile(zip_path, "r") as archive:
         archived_request = archive.read("request.txt").decode("utf-8")
+        archived_meta = archive.read("meta.json").decode("utf-8")
     assert "sk-" not in archived_request
     assert "OPENAI_API_KEY" in archived_request
     assert "***" in archived_request
+    assert task_id in archived_meta

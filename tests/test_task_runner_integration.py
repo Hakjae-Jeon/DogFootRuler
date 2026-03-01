@@ -105,6 +105,7 @@ def test_task_runner_success_applies_changes_to_main_worktree(tmp_path: Path) ->
     meta = store.load_task_meta(task_id)
     task_dir = store.resolve_task_dir(task_id)
     assert meta["status"] == Status.APPLIED
+    assert meta["finished_at"]
     assert meta["session_mode"] == "new"
     assert meta["session_id"] == "session-alpha"
     assert meta["changed_files"] == ["src/main.py"]
