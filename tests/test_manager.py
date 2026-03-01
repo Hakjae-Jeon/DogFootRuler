@@ -64,6 +64,18 @@ def test_list_projects_only_returns_configured_projects(tmp_path: Path) -> None:
     assert manager.list_projects() == ["alpha"]
 
 
+def test_get_project_backfills_gitignore_rules(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    project = manager.create_project("alpha")
+    ignore_path = project.project_root / ".gitignore"
+    ignore_path.unlink()
+
+    reloaded = manager.get_project("alpha")
+
+    assert reloaded.project_root == project.project_root
+    assert "runs/" in ignore_path.read_text(encoding="utf-8")
+
+
 def test_system_forbidden_subpaths_apply_to_loaded_project(tmp_path: Path) -> None:
     manager = ProjectManager.load(write_system_config(tmp_path))
     project = manager.create_project("alpha")

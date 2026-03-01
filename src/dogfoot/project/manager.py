@@ -66,6 +66,21 @@ class ProjectManager:
                 detail = result.stderr.strip() or result.stdout.strip() or "unknown git error"
                 raise RuntimeError(f"Git initialization failed ({' '.join(args)}): {detail}")
 
+    def _ensure_project_ignore_rules(self, project_root: Path) -> None:
+        ignore_path = project_root / ".gitignore"
+        required_lines = ["runs/", "__pycache__/"]
+        existing_lines: list[str] = []
+        if ignore_path.exists():
+            existing_lines = ignore_path.read_text(encoding="utf-8").splitlines()
+        merged = [line for line in existing_lines if line.strip()]
+        changed = False
+        for line in required_lines:
+            if line not in merged:
+                merged.append(line)
+                changed = True
+        if changed or not ignore_path.exists():
+            ignore_path.write_text("\n".join(merged) + "\n", encoding="utf-8")
+
     def create_project(self, name: str, template: str = "empty") -> Project:
         if template not in {"empty", "python", "node"}:
             raise ValueError(f"Unsupported template: {template}")
@@ -75,7 +90,7 @@ class ProjectManager:
 
         (project_root / "config").mkdir(parents=True, exist_ok=True)
         (project_root / "runs").mkdir(parents=True, exist_ok=True)
-        (project_root / ".gitignore").write_text("runs/\n__pycache__/\n", encoding="utf-8")
+        self._ensure_project_ignore_rules(project_root)
         (project_root / "README.md").write_text(f"# {name}\n", encoding="utf-8")
 
         if template == "python":
@@ -105,6 +120,7 @@ class ProjectManager:
         project_root = self.resolve_project_root(name)
         if not project_root.exists():
             raise FileNotFoundError(f"Project not found: {name}")
+        self._ensure_project_ignore_rules(project_root)
         return Project.load(
             project_root,
             system_forbidden_subpaths=self.system_config.system_forbidden_subpaths,

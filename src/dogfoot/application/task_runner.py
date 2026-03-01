@@ -47,33 +47,8 @@ class TaskRunner:
         project = self.project_loader(meta)
         request_text = (task_dir / "request.txt").read_text(encoding="utf-8").strip()
         started = datetime.now(timezone.utc).isoformat()
-        branch = self.git_client.ensure_task_branch(task_id, project.project_root)
-        cleanup_workspace = True
         try:
-            if not self.git_client.workspace_is_clean(project.project_root):
-                note = "Codex 실행을 위한 작업 트리가 깨끗하지 않습니다."
-                self.task_store.update_meta(
-                    task_id,
-                    status=Status.FAILED,
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    notes=note,
-                )
-                await self.notifier(task_id, f"Task {task_id} 실패: {note}")
-                return
-
-            ok, checkout_err = self.git_client.checkout_branch(branch, project.project_root)
-            if not ok:
-                note = f"브랜치 체크아웃 실패: {checkout_err}"
-                self.task_store.update_meta(
-                    task_id,
-                    status=Status.FAILED,
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    notes=note,
-                )
-                await self.notifier(task_id, f"Task {task_id} 실패: {note}")
-                return
-
-            self.task_store.update_meta(task_id, branch=branch, status=Status.RUNNING, started_at=started)
+            self.task_store.update_meta(task_id, status=Status.RUNNING, started_at=started)
 
             return_code, stdout_capture, stderr_capture, reason = self.codex_runner.run(
                 task_id, request_text, project.project_root
@@ -100,8 +75,8 @@ class TaskRunner:
                 await self.notifier(task_id, canceled_summary)
                 return
 
-            diff_text = self.git_client.generate_diff(branch, project.project_root)
-            changed_files = self.git_client.changed_files(branch, project.project_root)
+            diff_text = self.git_client.generate_diff("", project.project_root)
+            changed_files = self.git_client.changed_files("", project.project_root)
             diff_path = task_dir / "diff.patch"
             diff_exists = bool(diff_text.strip())
             if diff_exists:
@@ -138,90 +113,6 @@ class TaskRunner:
                 await self.notifier(task_id, failure_summary)
                 return
 
-            if not diff_exists:
-                note = "Diff patch was not generated"
-                failure_summary = mask_sensitive(
-                    build_failure_summary_text(
-                        task_id=task_id,
-                        project_name=project.name,
-                        request=request_text,
-                        failure_reason=note,
-                        stdout_sample=stdout_excerpt,
-                        stderr_sample=stderr_excerpt,
-                        execution_note=execution_note,
-                    )
-                )
-                (task_dir / "summary.md").write_text(failure_summary, encoding="utf-8")
-                self.task_store.update_meta(
-                    task_id,
-                    status=Status.FAILED,
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    changed_files=changed_files,
-                    notes=note,
-                    stdout_excerpt=stdout_excerpt,
-                    stderr_excerpt=stderr_excerpt,
-                    execution_note=execution_note,
-                )
-                await self.notifier(task_id, failure_summary)
-                return
-
-            self.git_client.discard_workspace_changes(project.project_root)
-            ok, checkout_err = self.git_client.checkout_branch(self.git_client.main_branch, project.project_root)
-            if not ok:
-                note = f"{self.git_client.main_branch} 체크아웃 실패: {checkout_err}"
-                failure_summary = mask_sensitive(
-                    build_failure_summary_text(
-                        task_id=task_id,
-                        project_name=project.name,
-                        request=request_text,
-                        failure_reason=note,
-                        stdout_sample=stdout_excerpt,
-                        stderr_sample=stderr_excerpt,
-                        execution_note=execution_note,
-                    )
-                )
-                (task_dir / "summary.md").write_text(failure_summary, encoding="utf-8")
-                self.task_store.update_meta(
-                    task_id,
-                    status=Status.FAILED,
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    changed_files=changed_files,
-                    notes=note,
-                    stdout_excerpt=stdout_excerpt,
-                    stderr_excerpt=stderr_excerpt,
-                    execution_note=execution_note,
-                )
-                await self.notifier(task_id, failure_summary)
-                return
-
-            apply_result = self.git_client.apply_diff_file(diff_path, project.project_root)
-            if apply_result.returncode != 0:
-                note = f"자동 반영 실패: {apply_result.stderr.strip() or apply_result.stdout.strip()}"
-                failure_summary = mask_sensitive(
-                    build_failure_summary_text(
-                        task_id=task_id,
-                        project_name=project.name,
-                        request=request_text,
-                        failure_reason=note,
-                        stdout_sample=stdout_excerpt,
-                        stderr_sample=stderr_excerpt,
-                        execution_note=execution_note,
-                    )
-                )
-                (task_dir / "summary.md").write_text(failure_summary, encoding="utf-8")
-                self.task_store.update_meta(
-                    task_id,
-                    status=Status.FAILED,
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    changed_files=changed_files,
-                    notes=note,
-                    stdout_excerpt=stdout_excerpt,
-                    stderr_excerpt=stderr_excerpt,
-                    execution_note=execution_note,
-                )
-                await self.notifier(task_id, failure_summary)
-                return
-
             summary_text = build_summary_text(
                 task_id,
                 project.name,
@@ -243,14 +134,12 @@ class TaskRunner:
                 diff_exists=diff_exists,
                 changed_files=changed_files,
                 diff_path=str(diff_path) if diff_exists else None,
-                notes="Codex 변경을 main 작업 트리에 즉시 반영 완료",
+                notes="Codex 변경을 현재 작업 트리에 직접 반영 완료",
                 execution_note=execution_note,
             )
-            cleanup_workspace = False
             await self.notifier(task_id, masked_summary)
         finally:
-            if cleanup_workspace:
-                self.git_client.tidy_workspace(project.project_root)
+            pass
 
     async def queue_worker(self) -> None:
         try:
