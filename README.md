@@ -4,6 +4,9 @@
 - Purpose: Telegram을 통해 Codex CLI(구독 기반 로그인)를 원격으로 실행하고, 결과(요약/로그/diff)를 받는 **운영 파이프라인**을 검증하는 미니 프로젝트.
 - Scope: “원격 명령 채널 + 안전한 실행/승인/아카이브”가 핵심. 본 프로젝트(Yulmu) 이전에 위험/운영 이슈를 최대한 미리 잡는다.
 
+## Policy 준수
+- 이 프로젝트에서 작업할 때는 항상 `policy/` 하위 문서에 정의된 정책을 우선적으로 확인하고 준수해야 합니다.
+
 ## v0 문서 구성
 1. `docs/plan/v0/01_planning_design.md` — 기획/설계안 (목표/비목표/아키텍처/흐름)
 2. `docs/plan/v0/02_functional_requirements.md` — 기능 요구사항서 (FRD)
