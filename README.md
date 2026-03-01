@@ -7,6 +7,12 @@
 ## Policy 준수
 - 이 프로젝트에서 작업할 때는 항상 `policy/` 하위 문서에 정의된 정책을 우선적으로 확인하고 준수해야 합니다.
 
+## 현재 구조
+- `bot/` : 실행 엔트리포인트
+- `src/dogfoot/interfaces/` : Telegram, CLI 등 인터페이스 어댑터
+- `src/dogfoot/application/` : 작업 실행/시작 검증 유스케이스
+- `src/dogfoot/project/`, `tasks/`, `integrations/`, `utils/` : 코어 로직
+
 ## v0 문서 구성
 1. `docs/plan/v0/01_planning_design.md` — 기획/설계안 (목표/비목표/아키텍처/흐름)
 2. `docs/plan/v0/02_functional_requirements.md` — 기능 요구사항서 (FRD)
