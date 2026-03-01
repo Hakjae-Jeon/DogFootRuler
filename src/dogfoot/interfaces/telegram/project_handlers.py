@@ -28,10 +28,22 @@ async def help_command(
 async def status_command(
     runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    active_project_name = runtime.project_manager.system_config.active_project or "(none)"
     summary = runtime.task_store.status_summary()
+    active_project_name = runtime.project_manager.system_config.active_project or "(none)"
+    active_lines = [f"ACTIVE_PROJECT: {active_project_name}"]
+    if runtime.project_manager.system_config.active_project:
+        try:
+            active_project = runtime.project_manager.get_active_project()
+            latest_session_id = runtime.task_store.latest_session_id_for_project(active_project.name)
+            active_lines.append(f"PROJECT_ROOT: {active_project.project_root}")
+            active_lines.append(f"LATEST_SESSION: {latest_session_id or '(none)'}")
+        except Exception as exc:
+            active_lines.append(f"ACTIVE_PROJECT_STATUS: invalid ({exc})")
+            active_lines.append("복구: /project_list 후 /project_use <name>")
+    else:
+        active_lines.append("복구: /project_list 또는 /project_create <name> [template]")
     if update.message:
-        await update.message.reply_text(f"ACTIVE_PROJECT: {active_project_name}\n{summary}")
+        await update.message.reply_text("\n".join(active_lines + [summary]))
 
 
 async def project_list_command(
@@ -42,7 +54,11 @@ async def project_list_command(
     if not projects:
         text = f"등록된 프로젝트가 없습니다. active={active_project_name}"
     else:
-        text = "프로젝트 목록:\n" + "\n".join(projects) + f"\nactive={active_project_name}"
+        lines = []
+        for name in projects:
+            suffix = " *" if name == active_project_name else ""
+            lines.append(f"{name}{suffix}")
+        text = "프로젝트 목록:\n" + "\n".join(lines) + f"\nactive={active_project_name}"
     await update.message.reply_text(text)
 
 

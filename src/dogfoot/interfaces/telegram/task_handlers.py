@@ -186,7 +186,15 @@ async def _enqueue_prompt(
     try:
         active_project = runtime.project_manager.get_active_project()
     except Exception as exc:
-        await update.message.reply_text(f"active_project를 확인할 수 없습니다: {exc}")
+        active_name = runtime.project_manager.system_config.active_project or "(none)"
+        if active_name == "(none)":
+            await update.message.reply_text(
+                "active_project가 없습니다. /project_list로 목록을 보고 /project_use <name>으로 선택하세요."
+            )
+        else:
+            await update.message.reply_text(
+                f"active_project({active_name})를 확인할 수 없습니다: {exc}\n복구: /project_list 후 /project_use <name>"
+            )
         return
     chat_id = update.effective_chat.id if update.effective_chat else update.effective_user.id
     previous_session_id = None if force_new else runtime.task_store.latest_session_id_for_project(active_project.name)
