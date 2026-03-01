@@ -19,10 +19,10 @@ class GitClient:
         return branch
 
     def generate_diff(self, branch: str, project_root: Path) -> str:
-        return self.run(["diff", f"{self.main_branch}..{branch}"], cwd=project_root).stdout or ""
+        return self.run(["diff", self.main_branch], cwd=project_root).stdout or ""
 
     def changed_files(self, branch: str, project_root: Path) -> list[str]:
-        result = self.run(["diff", "--name-only", f"{self.main_branch}..{branch}"], cwd=project_root)
+        result = self.run(["diff", "--name-only", self.main_branch], cwd=project_root)
         return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
     def checkout_branch(self, branch: str, project_root: Path) -> tuple[bool, str]:
@@ -35,7 +35,8 @@ class GitClient:
         return self.run(["apply", "--whitespace=fix", str(diff_path)], cwd=project_root)
 
     def workspace_is_clean(self, project_root: Path) -> bool:
-        return not self.run(["status", "--porcelain"], cwd=project_root).stdout.strip()
+        result = self.run(["status", "--porcelain", "--", ".", ":(exclude)runs"], cwd=project_root)
+        return not result.stdout.strip()
 
     def stage_all(self, project_root: Path) -> None:
         self.run(["add", "-A"], cwd=project_root)
@@ -54,5 +55,5 @@ class GitClient:
 
     def tidy_workspace(self, project_root: Path) -> None:
         self.run(["reset", "--hard"], cwd=project_root)
-        self.run(["clean", "-fd"], cwd=project_root)
+        self.run(["clean", "-fd", "-e", "runs"], cwd=project_root)
         self.checkout_branch(self.main_branch, project_root)
