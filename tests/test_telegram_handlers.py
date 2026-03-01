@@ -13,6 +13,7 @@ from dogfoot.interfaces.telegram.project_handlers import (
     project_use_command,
 )
 from dogfoot.interfaces.telegram.task_handlers import cancel_command
+from dogfoot.interfaces.telegram.task_handlers import new_command, natural_text_handler
 from dogfoot.tasks.models import Status
 
 
@@ -25,17 +26,21 @@ def _make_context(args: list[str]) -> SimpleNamespace:
 
 
 def _make_runtime() -> TelegramRuntime:
+    active_project = SimpleNamespace(name="alpha", project_root="/tmp/alpha")
     return TelegramRuntime(
         bot=None,
         project_manager=SimpleNamespace(
             list_projects=lambda: ["alpha", "beta"],
             set_active_project=lambda name: None,
             create_project=lambda name, template="empty": SimpleNamespace(name=name, project_root=f"/tmp/{name}"),
+            get_active_project=lambda: active_project,
             system_config=SimpleNamespace(active_project="alpha"),
         ),
         task_store=SimpleNamespace(
             load_task_meta=lambda task_id: {"status": Status.QUEUED},
             update_meta=lambda *args, **kwargs: None,
+            latest_session_id_for_project=lambda project_name: "session-1",
+            create_task_with_session=lambda *args, **kwargs: "task-1",
         ),
         git_client=SimpleNamespace(),
         codex_runner=SimpleNamespace(cancel=lambda task_id: True),
@@ -94,3 +99,49 @@ def test_cancel_handler_updates_running_task() -> None:
     assert updates
     update.message.reply_text.assert_awaited_once()
     assert "취소" in update.message.reply_text.await_args.args[0]
+
+
+@pytest.mark.integration
+def test_natural_text_handler_uses_resume_session_when_available() -> None:
+    captured: dict = {}
+    runtime = _make_runtime()
+    runtime.task_store = SimpleNamespace(
+        latest_session_id_for_project=lambda project_name: "session-1",
+        create_task_with_session=lambda *args, **kwargs: captured.update(
+            {"args": args, "kwargs": kwargs}
+        )
+        or "task-1",
+    )
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=7),
+        effective_chat=SimpleNamespace(id=8),
+        message=SimpleNamespace(text="continue work", reply_text=AsyncMock(), reply_document=AsyncMock()),
+    )
+
+    asyncio.run(natural_text_handler(runtime, update, _make_context([])))
+
+    assert captured["kwargs"]["session_mode"] == "resume"
+    assert captured["kwargs"]["session_id"] == "session-1"
+
+
+@pytest.mark.integration
+def test_new_command_forces_new_session() -> None:
+    captured: dict = {}
+    runtime = _make_runtime()
+    runtime.task_store = SimpleNamespace(
+        latest_session_id_for_project=lambda project_name: "session-1",
+        create_task_with_session=lambda *args, **kwargs: captured.update(
+            {"args": args, "kwargs": kwargs}
+        )
+        or "task-2",
+    )
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=7),
+        effective_chat=SimpleNamespace(id=8),
+        message=SimpleNamespace(reply_text=AsyncMock(), reply_document=AsyncMock()),
+    )
+
+    asyncio.run(new_command(runtime, update, _make_context(["fresh", "start"])))
+
+    assert captured["kwargs"]["session_mode"] == "new"
+    assert captured["kwargs"]["session_id"] is None

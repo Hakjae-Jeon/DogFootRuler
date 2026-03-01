@@ -108,6 +108,17 @@ class TaskStore:
         return f"{now:%Y%m%d-%H%M%S}-{suffix}"
 
     def create_task(self, user_id: int, chat_id: int, text: str, project: Project) -> str:
+        return self.create_task_with_session(user_id, chat_id, text, project, session_mode="new", session_id=None)
+
+    def create_task_with_session(
+        self,
+        user_id: int,
+        chat_id: int,
+        text: str,
+        project: Project,
+        session_mode: str,
+        session_id: str | None,
+    ) -> str:
         task_id = self._new_task_id()
         task_dir = project.get_runs_dir() / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
@@ -123,11 +134,28 @@ class TaskStore:
             "project_name": project.name,
             "project_root": str(project.project_root),
             "task_dir": str(task_dir),
+            "session_mode": session_mode,
+            "resume_session_id": session_id,
         }
         self.tasks[task_id] = meta
         self._persist_meta(task_id)
         self.queue.put_nowait(task_id)
         return task_id
+
+    def latest_session_id_for_project(self, project_name: str) -> str | None:
+        latest_created_at = ""
+        latest_session_id: str | None = None
+        for meta in self.tasks.values():
+            if meta.get("project_name") != project_name:
+                continue
+            session_id = meta.get("session_id")
+            created_at = str(meta.get("created_at") or "")
+            if not session_id:
+                continue
+            if created_at >= latest_created_at:
+                latest_created_at = created_at
+                latest_session_id = str(session_id)
+        return latest_session_id
 
     def update_meta(self, task_id: str, **updates: Any) -> None:
         meta = self.tasks.get(task_id)

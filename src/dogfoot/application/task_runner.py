@@ -49,9 +49,15 @@ class TaskRunner:
         started = datetime.now(timezone.utc).isoformat()
         self.task_store.update_meta(task_id, status=Status.RUNNING, started_at=started)
 
-        return_code, stdout_capture, stderr_capture, reason = self.codex_runner.run(
-            task_id, request_text, project.project_root
-        )
+        session_mode = str(meta.get("session_mode") or "new")
+        resume_session_id = meta.get("resume_session_id")
+        return_code, stdout_capture, stderr_capture, reason, session_id = self.codex_runner.run(
+                task_id,
+                request_text,
+                project.project_root,
+                session_mode=session_mode,
+                session_id=str(resume_session_id) if resume_session_id else None,
+            )
         stdout_text = mask_sensitive(stdout_capture or build_stdout_text(task_id, request_text))
         stderr_text = mask_sensitive(stderr_capture or "")
         (task_dir / "stdout.log").write_text(stdout_text, encoding="utf-8")
@@ -70,6 +76,7 @@ class TaskRunner:
                 task_id,
                 finished_at=datetime.now(timezone.utc).isoformat(),
                 notes="사용자 취소",
+                session_id=session_id,
             )
             await self.notifier(task_id, canceled_summary)
             return
@@ -108,6 +115,7 @@ class TaskRunner:
                 stdout_excerpt=stdout_excerpt,
                 stderr_excerpt=stderr_excerpt,
                 execution_note=execution_note,
+                session_id=session_id,
             )
             await self.notifier(task_id, failure_summary)
             return
@@ -140,6 +148,7 @@ class TaskRunner:
                 stdout_excerpt=stdout_excerpt,
                 stderr_excerpt=stderr_excerpt,
                 execution_note=execution_note,
+                session_id=session_id,
             )
             await self.notifier(task_id, failure_summary)
             return
@@ -167,6 +176,7 @@ class TaskRunner:
             diff_path=str(diff_path) if diff_exists else None,
             notes="Codex 변경을 현재 작업 트리에 직접 반영 완료",
             execution_note=execution_note,
+            session_id=session_id,
         )
         await self.notifier(task_id, masked_summary)
 

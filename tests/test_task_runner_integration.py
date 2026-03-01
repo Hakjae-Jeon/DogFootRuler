@@ -39,8 +39,15 @@ class FakeCodexRunner:
     def __init__(self, action):
         self.action = action
 
-    def run(self, task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
-        return self.action(task_id, prompt, project_root)
+    def run(
+        self,
+        task_id: str,
+        prompt: str,
+        project_root: Path,
+        session_mode: str = "new",
+        session_id: str | None = None,
+    ) -> tuple[int, str, str, str, str | None]:
+        return self.action(task_id, prompt, project_root, session_mode, session_id)
 
 
 async def _notifier(task_id: str, text: str) -> None:
@@ -80,10 +87,14 @@ def test_task_runner_success_applies_changes_to_main_worktree(tmp_path: Path) ->
     _init_git_repo(project.project_root)
     store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
 
-    def action(task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
+    def action(
+        task_id: str, prompt: str, project_root: Path, session_mode: str, session_id: str | None
+    ) -> tuple[int, str, str, str, str | None]:
         target = project_root / "src" / "main.py"
         target.write_text("print('from fake codex')\n", encoding="utf-8")
-        return 0, "token=abc123\nok", "", ""
+        assert session_mode == "new"
+        assert session_id is None
+        return 0, "token=abc123\nok", "", "", "session-alpha"
 
     runner = _make_runner(manager, store, FakeCodexRunner(action))
     _notifier.messages.clear()
@@ -94,6 +105,8 @@ def test_task_runner_success_applies_changes_to_main_worktree(tmp_path: Path) ->
     meta = store.load_task_meta(task_id)
     task_dir = store.resolve_task_dir(task_id)
     assert meta["status"] == Status.APPLIED
+    assert meta["session_mode"] == "new"
+    assert meta["session_id"] == "session-alpha"
     assert meta["changed_files"] == ["src/main.py"]
     assert (task_dir / "diff.patch").exists()
     assert (task_dir / "summary.md").read_text(encoding="utf-8").find("프로젝트: alpha") >= 0
@@ -113,9 +126,11 @@ def test_task_runner_policy_violation_marks_failed(tmp_path: Path) -> None:
     _commit_all(project.project_root, "Update project policy")
     store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
 
-    def action(task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
+    def action(
+        task_id: str, prompt: str, project_root: Path, session_mode: str, session_id: str | None
+    ) -> tuple[int, str, str, str, str | None]:
         (project_root / "README.md").write_text("# invalid change\n", encoding="utf-8")
-        return 0, "", "", ""
+        return 0, "", "", "", None
 
     runner = _make_runner(manager, store, FakeCodexRunner(action))
     _notifier.messages.clear()
@@ -141,14 +156,16 @@ def test_task_runner_honors_canceled_status_after_codex_run(tmp_path: Path) -> N
     store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
     task_id = store.create_task(user_id=1, chat_id=2, text="cancel me", project=project)
 
-    def action(current_task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
+    def action(
+        current_task_id: str, prompt: str, project_root: Path, session_mode: str, session_id: str | None
+    ) -> tuple[int, str, str, str, str | None]:
         store.update_meta(
             current_task_id,
             status=Status.CANCELED,
             notes="사용자 취소(실행 중)",
         )
         (project_root / "src" / "main.py").write_text("print('canceled')\n", encoding="utf-8")
-        return 0, "", "", "cancelled"
+        return 0, "", "", "cancelled", "session-canceled"
 
     runner = _make_runner(manager, store, FakeCodexRunner(action))
     _notifier.messages.clear()
@@ -159,6 +176,7 @@ def test_task_runner_honors_canceled_status_after_codex_run(tmp_path: Path) -> N
     task_dir = store.resolve_task_dir(task_id)
     assert meta["status"] == Status.CANCELED
     assert meta["notes"] == "사용자 취소"
+    assert meta["session_id"] == "session-canceled"
     assert (task_dir / "summary.md").read_text(encoding="utf-8").find("사용자 취소") >= 0
     assert (project.project_root / "src" / "main.py").read_text(encoding="utf-8") == "print('canceled')\n"
 
@@ -170,8 +188,10 @@ def test_task_runner_marks_failed_when_no_changes_detected(tmp_path: Path) -> No
     _init_git_repo(project.project_root)
     store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
 
-    def action(task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
-        return 0, "변경할 파일을 찾지 못했습니다", "", ""
+    def action(
+        task_id: str, prompt: str, project_root: Path, session_mode: str, session_id: str | None
+    ) -> tuple[int, str, str, str, str | None]:
+        return 0, "변경할 파일을 찾지 못했습니다", "", "", None
 
     runner = _make_runner(manager, store, FakeCodexRunner(action))
     _notifier.messages.clear()
@@ -195,9 +215,11 @@ def test_task_runner_marks_failed_when_codex_returns_nonzero(tmp_path: Path) -> 
     _init_git_repo(project.project_root)
     store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
 
-    def action(task_id: str, prompt: str, project_root: Path) -> tuple[int, str, str, str]:
+    def action(
+        task_id: str, prompt: str, project_root: Path, session_mode: str, session_id: str | None
+    ) -> tuple[int, str, str, str, str | None]:
         (project_root / "src" / "main.py").write_text("print('partial change')\n", encoding="utf-8")
-        return 2, "partial output", "error happened", ""
+        return 2, "partial output", "error happened", "", "session-failed"
 
     runner = _make_runner(manager, store, FakeCodexRunner(action))
     _notifier.messages.clear()
@@ -209,6 +231,7 @@ def test_task_runner_marks_failed_when_codex_returns_nonzero(tmp_path: Path) -> 
     task_dir = store.resolve_task_dir(task_id)
     assert meta["status"] == Status.FAILED
     assert meta["return_code"] == 2
+    assert meta["session_id"] == "session-failed"
     assert meta["changed_files"] == ["src/main.py"]
     assert "Codex exited with code 2" in str(meta["notes"])
     assert (task_dir / "diff.patch").exists()
@@ -239,3 +262,31 @@ def test_task_store_marks_running_tasks_failed_on_restart(tmp_path: Path) -> Non
 
     assert meta["status"] == Status.FAILED
     assert "프로세스 재시작" in str(meta["notes"])
+
+
+@pytest.mark.integration
+def test_task_runner_resumes_latest_project_session(tmp_path: Path) -> None:
+    manager = ProjectManager.load(write_system_config(tmp_path))
+    project = manager.create_project("alpha", template="python")
+    _init_git_repo(project.project_root)
+    store = TaskStore(manager=manager, legacy_runs_dir=tmp_path / "legacy-runs")
+    previous_id = store.create_task_with_session(1, 2, "first", project, session_mode="new", session_id=None)
+    store.update_meta(previous_id, status=Status.APPLIED, session_id="session-prev")
+
+    def action(
+        task_id: str, prompt: str, project_root: Path, session_mode: str, session_id: str | None
+    ) -> tuple[int, str, str, str, str | None]:
+        (project_root / "src" / "main.py").write_text("print('resumed')\n", encoding="utf-8")
+        assert session_mode == "resume"
+        assert session_id == "session-prev"
+        return 0, "ok", "", "", "session-prev"
+
+    runner = _make_runner(manager, store, FakeCodexRunner(action))
+    task_id = store.create_task_with_session(1, 2, "follow up", project, session_mode="resume", session_id="session-prev")
+
+    asyncio.run(runner.process_task(task_id))
+
+    meta = store.load_task_meta(task_id)
+    assert meta["status"] == Status.APPLIED
+    assert meta["session_mode"] == "resume"
+    assert meta["session_id"] == "session-prev"

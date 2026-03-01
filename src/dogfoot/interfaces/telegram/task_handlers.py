@@ -163,8 +163,23 @@ async def merge_command(
 async def natural_text_handler(
     runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
+    await _enqueue_prompt(runtime, update, update.message.text.strip(), force_new=False)
+
+
+async def new_command(
+    runtime: TelegramRuntime, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    text = " ".join(context.args).strip()
+    await _enqueue_prompt(runtime, update, text, force_new=True)
+
+
+async def _enqueue_prompt(
+    runtime: TelegramRuntime,
+    update: Update,
+    text: str,
+    force_new: bool,
+) -> None:
     user_id = update.effective_user.id
-    text = update.message.text.strip()
     if not text:
         await update.message.reply_text("작업 지시를 입력해주세요.")
         return
@@ -174,4 +189,15 @@ async def natural_text_handler(
         await update.message.reply_text(f"active_project를 확인할 수 없습니다: {exc}")
         return
     chat_id = update.effective_chat.id if update.effective_chat else update.effective_user.id
-    task_id = runtime.task_store.create_task(user_id, chat_id, text, active_project)
+    previous_session_id = None if force_new else runtime.task_store.latest_session_id_for_project(active_project.name)
+    session_mode = "resume" if previous_session_id else "new"
+    if force_new:
+        session_mode = "new"
+    task_id = runtime.task_store.create_task_with_session(
+        user_id,
+        chat_id,
+        text,
+        active_project,
+        session_mode=session_mode,
+        session_id=previous_session_id,
+    )
